@@ -147,34 +147,51 @@ class DatasetGenerator:
         if self.use_flux:
             mask = mask.cpu().float()
 
-            image = self.inpaint_pipeline(
+            if self.num_controlnets == 0:
+                image = self.inpaint_pipeline(
                 prompt=prompt,
                 image=img,
                 mask_image=mask,
-                control_image=control_images,
-                control_mode=self.control_modes(),
-                guidance_scale=3.5,
-                # generator=torch.Generator(self.device).manual_seed(0)
                 generator=torch.manual_seed(0)
             ).images[0]
+            else:
+                image = self.inpaint_pipeline(
+                    prompt=prompt,
+                    image=img,
+                    mask_image=mask,
+                    control_image=control_images,
+                    control_mode=self.control_modes(),
+                    guidance_scale=3.5,
+                    # generator=torch.Generator(self.device).manual_seed(0)
+                    generator=torch.manual_seed(0)
+                ).images[0]
 
         else:
             if isinstance(mask, torch.Tensor):
                 mask = mask.squeeze().detach().cpu().numpy()
                 mask = (mask * 255).astype(np.uint8)
                 mask = Image.fromarray(mask).convert("L")
-
-            image = self.inpaint_pipeline(
+            
+            if self.num_controlnets == 0:
+                image = self.inpaint_pipeline(
                 prompt=prompt,
                 negative_prompt=negative_prompt,
                 image=img,
                 mask_image=mask,
-                control_image=control_images,
-                controlnet_conditioning_scale=controlnet_conditioning_scale,
-                control_guidance_start=control_guidance_start,
-                control_guidance_end=control_guidance_end,
                 generator=torch.Generator(self.device).manual_seed(0),
             ).images[0]
+            else:   
+                image = self.inpaint_pipeline(
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    image=img,
+                    mask_image=mask,
+                    control_image=control_images,
+                    controlnet_conditioning_scale=controlnet_conditioning_scale,
+                    control_guidance_start=control_guidance_start,
+                    control_guidance_end=control_guidance_end,
+                    generator=torch.Generator(self.device).manual_seed(0),
+                ).images[0]
 
         self.flush()
         return image
