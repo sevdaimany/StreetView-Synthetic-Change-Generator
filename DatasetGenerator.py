@@ -32,14 +32,15 @@ class DatasetGenerator:
 
         if self.use_flux:
             if self.num_controlnets == 0:
-                self.inpaint_pipeline = FluxFillPipeline.from_pretrained(cfg.model.inpainting, torch_dtype=torch.float16)
+                self.inpaint_pipeline = FluxFillPipeline.from_pretrained(cfg.model.inpainting, torch_dtype=torch.bfloat16)
             else:
-                controlnet_union = FluxControlNetModel.from_pretrained(cfg.model.controlnet_union, torch_dtype=torch.float16)
+                controlnet_union = FluxControlNetModel.from_pretrained(cfg.model.controlnet_union, torch_dtype=torch.bfloat16)
                 controlnet = FluxMultiControlNetModel([controlnet_union])
                 self.inpaint_pipeline = FluxControlInpaintPipeline.from_pretrained(cfg.model.inpainting,
                         controlnet=controlnet,
-                        torch_dtype=torch.float16)
+                        torch_dtype=torch.bfloat16)
             # self.inpaint_pipeline.enable_sequential_cpu_offload(device=self.device) # Very slow
+            self.inpaint_pipeline.enable_model_cpu_offload(device=self.device) 
     
         elif self.use_xl:
             if self.num_controlnets == 0:
@@ -312,21 +313,17 @@ class DatasetGenerator:
             image = Image.alpha_composite(image, overlay)
         return image
 
-    def save_inpainted_and_mask(self, original_image, inpainted_image, mask, save_path):
+    def save_inpainted_and_mask(self, inpainted_image, mask, save_path):
         """Utility to save inpainted image and corresponding mask. in one plot with captions."""
-        fig, axes = plt.subplots(1, 3, figsize=(20, 10))
-        axes[0].imshow(original_image)
-        axes[0].set_title("Original Image")
+        fig, axes = plt.subplots(1, 2, figsize=(20, 10))
+    
+        axes[0].imshow(mask, cmap="gray")
+        axes[0].set_title("Overlay Mask")
         axes[0].axis("off")
 
-    
-        axes[1].imshow(mask, cmap="gray")
-        axes[1].set_title("Overlay Mask")
+        axes[1].imshow(inpainted_image)
+        axes[1].set_title("Inpainted Image")
         axes[1].axis("off")
-
-        axes[2].imshow(inpainted_image)
-        axes[2].set_title("Inpainted Image")
-        axes[2].axis("off")
 
         plt.tight_layout()
         plt.savefig(save_path)
