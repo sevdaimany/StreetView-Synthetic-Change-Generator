@@ -69,7 +69,9 @@ def main(cfg: DictConfig):
 
     # Load image and prompts
     image_path = os.path.join(cfg.input.project_path, cfg.input.image_folder, cfg.input.image_name)
-    img = Image.open(image_path).convert("RGB").resize((cfg.input.resize_width, cfg.input.resize_height), Image.BILINEAR)
+    img = Image.open(image_path).convert("RGB")
+    if 'panorama' in cfg.input.image_name.lower():
+        img = img.resize((cfg.input.resize_width, cfg.input.resize_height), Image.BILINEAR)
 
     prompt_seg = cfg.input.prompt_seg
     prompt_inpaint = normalize_prompt(list(cfg.input.prompt_inpaint))
@@ -87,7 +89,7 @@ def main(cfg: DictConfig):
     filtered_mask = mask
     logg.info(f"Filtered mask shape: {filtered_mask.shape}")
     # mask_index = random.randint(0, filtered_mask.shape[0] - 1)
-    mask_index = 5
+    mask_index = 1
     logg.info(f"Selected mask index: {mask_index}")
     selected_mask = filtered_mask[mask_index] 
     # selected_mask = generator.dilate_mask(selected_mask, radius=11)

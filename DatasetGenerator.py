@@ -315,7 +315,7 @@ class DatasetGenerator:
 
     def save_inpainted_and_mask(self, inpainted_image, mask, save_path):
         """Utility to save inpainted image and corresponding mask. in one plot with captions."""
-        fig, axes = plt.subplots(1, 2, figsize=(20, 10))
+        fig, axes = plt.subplots(1, 2, figsize=(20, 12))
     
         axes[0].imshow(mask, cmap="gray")
         axes[0].set_title("Overlay Mask")
