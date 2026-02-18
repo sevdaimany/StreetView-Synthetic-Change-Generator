@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import random
 import math
-import Panorama
+# import Panorama
 import torch
 from PIL import Image
 from transformers import Sam3Model, Sam3Processor
@@ -10,9 +10,10 @@ import matplotlib.pyplot as plt
 import matplotlib 
 from diffusers import FluxFillPipeline
 import gc
-from diffusers import ControlNetModel, StableDiffusionControlNetInpaintPipeline, StableDiffusionXLControlNetInpaintPipeline, AutoencoderKL
+from diffusers import ControlNetModel, StableDiffusionControlNetInpaintPipeline, StableDiffusionInpaintPipeline, StableDiffusionXLControlNetInpaintPipeline, StableDiffusionXLInpaintPipeline, AutoencoderKL
 from diffusers.utils import  make_image_grid
 from transformers import DPTForDepthEstimation, DPTImageProcessor
+from diffusers import FluxControlInpaintPipeline, FluxMultiControlNetModel, FluxControlNetModel
 import os
 
 class DatasetGenerator:
@@ -27,32 +28,56 @@ class DatasetGenerator:
         self.use_flux = "FLUX" in cfg.model.inpainting
         self.use_xl = "xl" in cfg.model.inpainting
         self.cfg = cfg
+        self.num_controlnets = int(cfg.input.depth) + int(cfg.input.canny) + int(cfg.input.inpaint)
 
         if self.use_flux:
-            self.inpaint_pipeline = FluxFillPipeline.from_pretrained(cfg.model.inpainting,
-                                    torch_dtype=torch.bfloat16)
-            self.inpaint_pipeline.enable_sequential_cpu_offload(device=self.device) # Very slow
+            if self.num_controlnets == 0:
+                self.inpaint_pipeline = FluxFillPipeline.from_pretrained(cfg.model.inpainting, torch_dtype=torch.float16)
+            else:
+                controlnet_union = FluxControlNetModel.from_pretrained(cfg.model.controlnet_union, torch_dtype=torch.float16)
+                controlnet = FluxMultiControlNetModel([controlnet_union])
+                self.inpaint_pipeline = FluxControlInpaintPipeline.from_pretrained(cfg.model.inpainting,
+                        controlnet=controlnet,
+                        torch_dtype=torch.float16)
+            # self.inpaint_pipeline.enable_sequential_cpu_offload(device=self.device) # Very slow
     
         elif self.use_xl:
-            controllers = self.controlnet_models()
-            vae = AutoencoderKL.from_pretrained(cfg.model.vae, torch_dtype=torch.float16)
-            self.inpaint_pipeline = StableDiffusionXLControlNetInpaintPipeline.from_pretrained(
+            if self.num_controlnets == 0:
+                vae = AutoencoderKL.from_pretrained(cfg.model.vae, torch_dtype=torch.float16)
+                self.inpaint_pipeline = StableDiffusionXLInpaintPipeline.from_pretrained(
                     cfg.model.inpainting,
-                    controlnet=controllers,
                     vae=vae,
                     torch_dtype=torch.float16,
                     variant="fp16")
-            self.inpaint_pipeline.enable_model_cpu_offload(device=self.device) 
+                self.inpaint_pipeline.enable_model_cpu_offload(device=self.device) 
+            else:
+                controllers = self.controlnet_models()
+                vae = AutoencoderKL.from_pretrained(cfg.model.vae, torch_dtype=torch.float16)
+                self.inpaint_pipeline = StableDiffusionXLControlNetInpaintPipeline.from_pretrained(
+                        cfg.model.inpainting,
+                        controlnet=controllers,
+                        vae=vae,
+                        torch_dtype=torch.float16,
+                        variant="fp16")
+                self.inpaint_pipeline.enable_model_cpu_offload(device=self.device) 
 
         else:
-            controllers = self.controlnet_models()
-            self.inpaint_pipeline = StableDiffusionControlNetInpaintPipeline.from_pretrained(
+            if self.num_controlnets == 0:
+                self.inpaint_pipeline = StableDiffusionInpaintPipeline.from_pretrained(
                     cfg.model.inpainting,
-                    controlnet=controllers,
                     torch_dtype=torch.float16,
                     use_safetensors=True,
                     variant="fp16")
-            self.inpaint_pipeline.enable_model_cpu_offload(device=self.device) 
+                self.inpaint_pipeline.enable_model_cpu_offload(device=self.device) 
+            else:
+                controllers = self.controlnet_models()
+                self.inpaint_pipeline = StableDiffusionControlNetInpaintPipeline.from_pretrained(
+                        cfg.model.inpainting,
+                        controlnet=controllers,
+                        torch_dtype=torch.float16,
+                        use_safetensors=True,
+                        variant="fp16")
+                self.inpaint_pipeline.enable_model_cpu_offload(device=self.device) 
 
         if cfg.input.depth:
             self.depth_processor = DPTImageProcessor.from_pretrained(cfg.model.depth_estimation)
@@ -96,8 +121,28 @@ class DatasetGenerator:
 
         return results["masks"]
 
+    def control_modes(self):
+        modes = []
+        if self.cfg.input.depth:
+            modes.append(2)
+        if self.cfg.input.canny:
+            modes.append(0)
+        return modes
+
     def inpainting(self, img, mask, prompt, control_images, negative_prompt=""):
         """Inpaints the masked region of an image using the FluxFillPipeline."""
+        if len(control_images) == 2: # both depth and canny
+                controlnet_conditioning_scale = [0.85, 0.65]  # [depth, canny] tune
+                control_guidance_start = [0.0, 0.0]
+                control_guidance_end   = [1.0, 1.0]
+        if len(control_images) == 3:
+                controlnet_conditioning_scale = [0.55, 0.55, 0.85]  # [depth, canny, inpaint_mask] tune
+                control_guidance_start = [0.0, 0.0, 0.0]
+                control_guidance_end   = [1.0, 1.0, 1.0]
+        else: #default for single controlnet or no controlnet
+                controlnet_conditioning_scale = 0.5
+                control_guidance_start = 0.0
+                control_guidance_end   = 1.0
 
         if self.use_flux:
             mask = mask.cpu().float()
@@ -106,7 +151,11 @@ class DatasetGenerator:
                 prompt=prompt,
                 image=img,
                 mask_image=mask,
-                generator=torch.Generator(self.device).manual_seed(0)
+                control_image=control_images,
+                control_mode=self.control_modes(),
+                guidance_scale=3.5,
+                # generator=torch.Generator(self.device).manual_seed(0)
+                generator=torch.manual_seed(0)
             ).images[0]
 
         else:
@@ -114,19 +163,6 @@ class DatasetGenerator:
                 mask = mask.squeeze().detach().cpu().numpy()
                 mask = (mask * 255).astype(np.uint8)
                 mask = Image.fromarray(mask).convert("L")
-                
-            if len(control_images) == 2: # both depth and canny
-                controlnet_conditioning_scale = [0.85, 0.65]  # [depth, canny] tune
-                control_guidance_start = [0.0, 0.0]
-                control_guidance_end   = [1.0, 1.0]
-            if len(control_images) == 3:
-                controlnet_conditioning_scale = [0.55, 0.55, 0.85]  # [depth, canny, inpaint_mask] tune
-                control_guidance_start = [0.0, 0.0, 0.0]
-                control_guidance_end   = [1.0, 1.0, 1.0]
-            else: #default for single controlnet or no controlnet
-                controlnet_conditioning_scale = 0.5
-                control_guidance_start = 0.0
-                control_guidance_end   = 1.0
 
             image = self.inpaint_pipeline(
                 prompt=prompt,

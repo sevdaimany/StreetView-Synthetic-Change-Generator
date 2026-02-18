@@ -4,25 +4,30 @@ model:
   segmentation: "facebook/sam3"
   depth_estimation: "Intel/dpt-hybrid-midas"
 
-  # inpainting: "black-forest-labs/FLUX.1-Fill-dev" #options: "black-forest-labs/FLUX.1-Fill-dev", "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"
-  
-  # inpainting: "stable-diffusion-v1-5/stable-diffusion-inpainting"
+  # inpainting: "black-forest-labs/FLUX.1-Fill-dev"
+  # controlnet_union: "InstantX/FLUX.1-dev-Controlnet-Union" 
+
+  # controlnet_depth: "black-forest-labs/FLUX.1-Depth-dev"
+  # controlnet_canny: "black-forest-labs/FLUX.1-Canny-dev"
+
+
+
+  inpainting: "stable-diffusion-v1-5/stable-diffusion-inpainting"
   # controlnet: "lllyasviel/control_v11p_sd15_inpaint"
   # controlnet_depth: "lllyasviel/sd-controlnet-depth"
   # controlnet_canny: "lllyasviel/sd-controlnet-canny"
 
-  # inpainting: "stabilityai/stable-diffusion-xl-base-1.0"
-  inpainting: "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"  
-  controlnet_depth: "diffusers/controlnet-depth-sdxl-1.0"
-  controlnet_canny: "diffusers/controlnet-canny-sdxl-1.0"
-  vae: "madebyollin/sdxl-vae-fp16-fix"
+  # inpainting: "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"  
+  # controlnet_depth: "diffusers/controlnet-depth-sdxl-1.0"
+  # controlnet_canny: "diffusers/controlnet-canny-sdxl-1.0"
+  # vae: "madebyollin/sdxl-vae-fp16-fix"
 
 input:
-  image_folder: "/home/SImany/data_generation_pipeline/images/"
-  image_name: "7.jpg"
-  prompt_seg: "cracks"
+  image_folder: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/images/"
+  image_name: "4.jpg"
+  prompt_seg: "buildings"
 
-  prompt_inpaint: ""
+  prompt_inpaint: "remove the building"
   negative_prompt_inpaint: ""
 
   # prompt_inpaint: 
@@ -37,19 +42,19 @@ input:
   #   - "text, watermark, logo, artifacts, oversharpen, halo, seams"
   
 
-  canny: true
-  depth: true
-  inpaint: false
+  canny: false
+  depth: false
+  inpaint: false # only for stable diffusion inpainting
 
 output:
-  segmentation_overlay: "/home/SImany/data_generation_pipeline/results/segmentation_overlay/"
-  inpainting_results: "/home/SImany/data_generation_pipeline/results/inpainting/"
-  panorama_to_perspective: "/home/SImany/data_generation_pipeline/results/panorama_to_perspective/"
-  stitching_results: "/home/SImany/data_generation_pipeline/results/stitching/"
-  edge_detection_results: "/home/SImany/data_generation_pipeline/results/edge_detection/"
-  red_herring_results: "/home/SImany/data_generation_pipeline/results/red_herring/"
-  depth_results: "/home/SImany/data_generation_pipeline/results/depth/"
-  inpaited_only_results: "/home/SImany/data_generation_pipeline/results/inpainted_only/"
+  segmentation_overlay: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results/segmentation_overlay/"
+  inpainting_results: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results/inpainting/"
+  panorama_to_perspective: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results/panorama_to_perspective/"
+  stitching_results: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results/stitching/"
+  edge_detection_results: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results/edge_detection/"
+  red_herring_results: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results/red_herring/"
+  depth_results: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results/depth/"
+  inpaited_only_results: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results/inpainted_only/"
 
 
 hydra:

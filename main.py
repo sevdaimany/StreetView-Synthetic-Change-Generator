@@ -9,7 +9,7 @@ from huggingface_hub import login
 from omegaconf import OmegaConf, DictConfig
 import hydra
 import logging
-import Panorama
+# import Panorama
 import random
 
 load_dotenv()
@@ -31,7 +31,7 @@ def log_config(cfg):
     logg.info(f"Configuration:\n{OmegaConf.to_yaml(cfg)}")
     if "FLUX" in cfg.model.inpainting:
         logg.info("Using FLUX for inpainting")
-    if "xl" in cfg.model.inpainting:
+    elif "xl" in cfg.model.inpainting:
         logg.info("Using Stable Diffusion XL + ControlNet for inpainting")
     else:
         logg.info("Using Stable Diffusion + ControlNet for inpainting")
@@ -43,8 +43,8 @@ def normalize_prompt(p):
     return p    
 
 
-def inpaint_output_name(image_path, prompt_inpaint, mask_index, cfg):
-    inpainted_name = f"{os.path.basename(image_path).split('.')[0]}index{mask_index}_{prompt_inpaint.split(',')[0]}_{cfg.model.inpainting.split('/')[-1]}"
+def inpaint_output_name(cfg, mask_index):
+    inpainted_name = f"{cfg.image_name.split('.')[0]}idx{mask_index}_{cfg.prompt_seg}_{cfg.prompt_inpaint.split(',')[0]}_{cfg.model.inpainting.split('/')[-1]}"
     if cfg.input.canny:
         inpainted_name += "_canny"
     if cfg.input.depth:
@@ -94,7 +94,7 @@ def main(cfg: DictConfig):
 
     # Save inpainting results
     overlay = generator.overlay_mask(img, selected_mask)
-    inpainted_name = inpaint_output_name(image_path, prompt_inpaint, mask_index, cfg)
+    inpainted_name = inpaint_output_name(cfg, mask_index)
     save_path = os.path.join(cfg.output.inpainting_results, inpainted_name)
     generator.save_inpainted_and_mask(img, inpainted_image, overlay, save_path=save_path)
 
@@ -109,11 +109,11 @@ def main(cfg: DictConfig):
     # generator.save_image(overlay, title="Segmented Inpainted Image", save_path=os.path.join(cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}index{mask_index}_inpainted_{prompt_seg}_{cfg.model.segmentation.split('/')[-1]}.png")) 
 
 
-@hydra.main(config_path=".", config_name="config")
-def testing_panorama(cfg: DictConfig):
-    log_config(cfg)
-    create_output_dirs(cfg)
-    cam = Panorama()
+# @hydra.main(config_path=".", config_name="config")
+# def testing_panorama(cfg: DictConfig):
+#     log_config(cfg)
+#     create_output_dirs(cfg)
+#     cam = Panorama()
     
 
 
