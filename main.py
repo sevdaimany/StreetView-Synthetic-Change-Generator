@@ -95,10 +95,10 @@ def main(cfg: DictConfig):
     # Save inpainting results
     overlay = generator.overlay_mask(img, selected_mask)
     inpainted_name = inpaint_output_name(cfg, mask_index)
-    save_path = os.path.join(cfg.output.inpainting_results, inpainted_name)
+    save_path = os.path.join(cfg.input.project_path, cfg.output.inpainting_results, inpainted_name)
     generator.save_inpainted_and_mask(img, inpainted_image, overlay, save_path=save_path)
 
-    save_path = os.path.join(cfg.output.inpaited_only_results, inpainted_name)
+    save_path = os.path.join(cfg.input.project_path, cfg.output.inpaited_only_results, inpainted_name)
     generator.save_image(inpainted_image, title="Inpainted Image", save_path=save_path)
     logg.info(f"Saved inpainted image to {save_path}")
 
