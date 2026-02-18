@@ -184,13 +184,13 @@ class DatasetGenerator:
         if self.cfg.input.depth:
             control_image = self.make_depth_control(img)
             if save:
-                control_image.save(os.path.join(self.cfg.output.depth_results, f"{self.cfg.input.image_name.split('.')[0]}_depth.png"))
+                control_image.save(os.path.join(self.cfg.input.project_path, self.cfg.output.depth_results, f"{self.cfg.input.image_name.split('.')[0]}_depth.png"))
             control_images.append(control_image)
 
         if self.cfg.input.canny:
             control_image = self.make_canny_control(img)
             if save:
-                control_image.save(os.path.join(self.cfg.output.edge_detection_results, f"{self.cfg.input.image_name.split('.')[0]}_canny.png"))
+                control_image.save(os.path.join(self.cfg.input.project_path, self.cfg.output.edge_detection_results, f"{self.cfg.input.image_name.split('.')[0]}_canny.png"))
             control_images.append(control_image)
 
         if self.cfg.input.inpaint:

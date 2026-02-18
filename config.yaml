@@ -23,7 +23,8 @@ model:
   # vae: "madebyollin/sdxl-vae-fp16-fix"
 
 input:
-  image_folder: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/images/"
+  project_path: "/home/SImany/data_generation_pipeline"
+  image_folder: "images/"
   image_name: "4.jpg"
   prompt_seg: "buildings"
 
@@ -47,14 +48,14 @@ input:
   inpaint: false # only for stable diffusion inpainting
 
 output:
-  segmentation_overlay: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results/segmentation_overlay/"
-  inpainting_results: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results/inpainting/"
-  panorama_to_perspective: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results/panorama_to_perspective/"
-  stitching_results: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results/stitching/"
-  edge_detection_results: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results/edge_detection/"
-  red_herring_results: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results/red_herring/"
-  depth_results: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results/depth/"
-  inpaited_only_results: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results/inpainted_only/"
+  segmentation_overlay: "results/segmentation_overlay/"
+  inpainting_results: "results/inpainting/"
+  panorama_to_perspective: "results/panorama_to_perspective/"
+  stitching_results: "results/stitching/"
+  edge_detection_results: "results/edge_detection/"
+  red_herring_results: "results/red_herring/"
+  depth_results: "results/depth/"
+  inpaited_only_results: "results/inpainted_only/"
 
 
 hydra:

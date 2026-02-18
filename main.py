@@ -61,7 +61,7 @@ def main(cfg: DictConfig):
     generator = DatasetGenerator(cfg)
 
     # Load image and prompts
-    image_path = os.path.join(cfg.input.image_folder, cfg.input.image_name)
+    image_path = os.path.join(cfg.input.project_path, cfg.input.image_folder, cfg.input.image_name)
     img = Image.open(image_path).convert("RGB")
     prompt_seg = cfg.input.prompt_seg
     prompt_inpaint = normalize_prompt(list(cfg.input.prompt_inpaint))
@@ -72,7 +72,7 @@ def main(cfg: DictConfig):
     mask = generator.segment(img, prompt_seg)
     logg.info(f"Generated mask shape: {mask.shape}")
     overlay = generator.overlay_mask(img, mask)
-    # generator.save_image(overlay, title="Segmented Image", save_path=os.path.join(cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}_{prompt_seg}_{cfg.model.segmentation.split('/')[-1]}.png"))
+    # generator.save_image(overlay, title="Segmented Image", save_path=os.path.join(cfg.input.project_path, cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}_{prompt_seg}_{cfg.model.segmentation.split('/')[-1]}.png"))
 
     # Filter masks near borders and select one for inpainting
     # filtered_mask = generator.filter_masks(mask)
@@ -106,7 +106,7 @@ def main(cfg: DictConfig):
     # testing segmentation on inpainted image
     # after_mask = generator.segment(inpainted_image, prompt_seg)
     # overlay = generator.overlay_mask(inpainted_image, after_mask)
-    # generator.save_image(overlay, title="Segmented Inpainted Image", save_path=os.path.join(cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}index{mask_index}_inpainted_{prompt_seg}_{cfg.model.segmentation.split('/')[-1]}.png")) 
+    # generator.save_image(overlay, title="Segmented Inpainted Image", save_path=os.path.join(cfg.input.project_path, cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}index{mask_index}_inpainted_{prompt_seg}_{cfg.model.segmentation.split('/')[-1]}.png")) 
 
 
 # @hydra.main(config_path=".", config_name="config")
