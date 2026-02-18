@@ -44,7 +44,7 @@ def normalize_prompt(p):
 
 
 def inpaint_output_name(cfg, mask_index):
-    inpainted_name = f"{cfg.image_name.split('.')[0]}idx{mask_index}_{cfg.prompt_seg}_{cfg.prompt_inpaint.split(',')[0]}_{cfg.model.inpainting.split('/')[-1]}"
+    inpainted_name = f"{cfg.input.image_name.split('.')[0]}idx{mask_index}_{cfg.prompt_seg}_{cfg.prompt_inpaint.split(',')[0]}_{cfg.model.inpainting.split('/')[-1]}"
     if cfg.input.canny:
         inpainted_name += "_canny"
     if cfg.input.depth:
