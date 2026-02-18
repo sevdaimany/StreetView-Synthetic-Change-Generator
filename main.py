@@ -44,7 +44,14 @@ def normalize_prompt(p):
 
 
 def inpaint_output_name(cfg, mask_index):
-    inpainted_name = f"{cfg.input.image_name.split('.')[0]}idx{mask_index}_{cfg.input.prompt_seg}_{cfg.input.prompt_inpaint.split(',')[0]}_{cfg.model.inpainting.split('/')[-1]}"
+    model = ""
+    if "FLUX" in cfg.model.inpainting:
+        model = "flux"
+    elif "xl" in cfg.model.inpainting:
+        model = "sdxl"
+    else:
+        model = "sd"
+    inpainted_name = f"{cfg.input.image_name.split('.')[0]}idx{mask_index}_{cfg.input.prompt_seg}_{cfg.input.prompt_inpaint.split(',')[0]}_{model}"
     if cfg.input.canny:
         inpainted_name += "_canny"
     if cfg.input.depth:
@@ -62,7 +69,8 @@ def main(cfg: DictConfig):
 
     # Load image and prompts
     image_path = os.path.join(cfg.input.project_path, cfg.input.image_folder, cfg.input.image_name)
-    img = Image.open(image_path).convert("RGB")
+    img = Image.open(image_path).convert("RGB").resize((cfg.input.resize_width, cfg.input.resize_height), Image.BILINEAR)
+
     prompt_seg = cfg.input.prompt_seg
     prompt_inpaint = normalize_prompt(list(cfg.input.prompt_inpaint))
     negative_prompt_inpaint = normalize_prompt(list(cfg.input.negative_prompt_inpaint))
@@ -72,14 +80,14 @@ def main(cfg: DictConfig):
     mask = generator.segment(img, prompt_seg)
     logg.info(f"Generated mask shape: {mask.shape}")
     overlay = generator.overlay_mask(img, mask)
-    # generator.save_image(overlay, title="Segmented Image", save_path=os.path.join(cfg.input.project_path, cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}_{prompt_seg}_{cfg.model.segmentation.split('/')[-1]}.png"))
+    generator.save_image(overlay, title="Segmented Image", save_path=os.path.join(cfg.input.project_path, cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}_{prompt_seg}_{cfg.model.segmentation.split('/')[-1]}.png"))
 
     # Filter masks near borders and select one for inpainting
     # filtered_mask = generator.filter_masks(mask)
     filtered_mask = mask
     logg.info(f"Filtered mask shape: {filtered_mask.shape}")
     # mask_index = random.randint(0, filtered_mask.shape[0] - 1)
-    mask_index = 1
+    mask_index = 5
     logg.info(f"Selected mask index: {mask_index}")
     selected_mask = filtered_mask[mask_index] 
     # selected_mask = generator.dilate_mask(selected_mask, radius=11)
@@ -88,15 +96,17 @@ def main(cfg: DictConfig):
     control_images = generator.generate_control_images(img, selected_mask, save=True)
 
     # Inpainting
+    logg.info("Starting inpainting...")
     inpainted_image = generator.inpainting(img, selected_mask, prompt_inpaint,
                  negative_prompt=negative_prompt_inpaint,
                  control_images=control_images)
+    logg.info("Inpainting completed.")
 
     # Save inpainting results
     overlay = generator.overlay_mask(img, selected_mask)
     inpainted_name = inpaint_output_name(cfg, mask_index)
     save_path = os.path.join(cfg.input.project_path, cfg.output.inpainting_results, inpainted_name)
-    generator.save_inpainted_and_mask(img, inpainted_image, overlay, save_path=save_path)
+    generator.save_inpainted_and_mask(inpainted_image, overlay, save_path=save_path)
 
     save_path = os.path.join(cfg.input.project_path, cfg.output.inpaited_only_results, inpainted_name)
     generator.save_image(inpainted_image, title="Inpainted Image", save_path=save_path)
