@@ -37,13 +37,7 @@ def log_config(cfg):
         logg.info("Using Stable Diffusion + ControlNet for inpainting")
 
 
-def normalize_prompt(p):
-    if isinstance(p, (list, tuple)):
-        return "".join(p)
-    return p    
-
-
-def inpaint_output_name(cfg, mask_index, prompt_inpaint):
+def inpaint_output_name(cfg, image_name, mask_index, prompt_inpaint, negative_prompt_inpaint=None):
     model = ""
     if "FLUX" in cfg.model.inpainting:
         model = "flux"
@@ -51,7 +45,13 @@ def inpaint_output_name(cfg, mask_index, prompt_inpaint):
         model = "sdxl"
     else:
         model = "sd"
-    inpainted_name = f"{cfg.input.image_name.split('.')[0]}idx{mask_index}_{cfg.input.prompt_seg}_{prompt_inpaint.split(',')[0]}_{model}"
+
+    len_neg_prompt_toshow = min(20, len(negative_prompt_inpaint)) if negative_prompt_inpaint else 0
+    len_prompt_toshow = min(20, len(prompt_inpaint)) if prompt_inpaint else 0
+    neg_prompt_part = negative_prompt_inpaint[:len_neg_prompt_toshow] if negative_prompt_inpaint else "NoPrompt"
+    prompt_part = prompt_inpaint[:len_prompt_toshow] if prompt_inpaint else "PosNoPrompt"
+    
+    inpainted_name = f"{image_name.split('.')[0]}idx{mask_index}_{cfg.input.prompt_seg}_{prompt_part}_Neg{neg_prompt_part}_{model}"
     if cfg.input.canny:
         inpainted_name += "_canny"
     if cfg.input.depth:
@@ -60,66 +60,104 @@ def inpaint_output_name(cfg, mask_index, prompt_inpaint):
         inpainted_name += "_inpaint"
     inpainted_name += ".png"
     return inpainted_name
-    
-@hydra.main(config_path=".", config_name="config")
-def main(cfg: DictConfig):
-    log_config(cfg)
-    create_output_dirs(cfg)
-    generator = DatasetGenerator(cfg)
 
-    # Load image and prompts
-    image_path = os.path.join(cfg.input.project_path, cfg.input.image_folder, cfg.input.image_name)
+def process_single_run(cfg, generator, image_name, prompt_inpaint, negative_prompt_inpaint, save_all=True):
+    logg.info(f"--- Processing: {image_name} | Prompt: '{prompt_inpaint}' | Negative Prompt: '{negative_prompt_inpaint}' ---")
+    
+    image_path = os.path.join(cfg.input.project_path, cfg.input.image_folder, image_name)
     img = Image.open(image_path).convert("RGB")
-    if 'panorama' in cfg.input.image_name.lower():
+    if 'panorama' in image_name.lower():
         img = img.resize((cfg.input.resize_width, cfg.input.resize_height), Image.BILINEAR)
 
-    prompt_seg = cfg.input.prompt_seg
-    prompt_inpaint = normalize_prompt(list(cfg.input.prompt_inpaint))
-    negative_prompt_inpaint = normalize_prompt(list(cfg.input.negative_prompt_inpaint))
-    logg.info(f"promt_seg: {prompt_seg}\nprompt_inpaint: {prompt_inpaint}\nnegative_prompt_inpaint: {negative_prompt_inpaint}")
-
     # Segmentation and Mask Generation
+    prompt_seg = cfg.input.prompt_seg
     mask = generator.segment(img, prompt_seg)
     logg.info(f"Generated mask shape: {mask.shape}")
-    overlay = generator.overlay_mask(img, mask)
-    generator.save_image(overlay, title="Segmented Image", save_path=os.path.join(cfg.input.project_path, cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}_{prompt_seg}_{cfg.model.segmentation.split('/')[-1]}.png"))
+    if save_all:
+        overlay = generator.overlay_mask(img, mask)
+        seg_save_path = os.path.join(cfg.input.project_path, cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}_{prompt_seg}_{cfg.model.segmentation.split('/')[-1]}.png") 
+        generator.save_image(overlay, title="Segmented Image", save_path=seg_save_path)
+        logg.info(f"Saved segmentation overlay to {seg_save_path}")
 
     # Filter masks near borders and select one for inpainting
-    # filtered_mask = generator.filter_masks(mask)
     filtered_mask = mask
+    # filtered_mask = generator.filter_masks(mask)
     logg.info(f"Filtered mask shape: {filtered_mask.shape}")
-    # mask_index = random.randint(0, filtered_mask.shape[0] - 1)
-    mask_index = 4  
+    mask_index = cfg.input.mask_index
+    if mask_index == -1:
+        mask_index = random.randint(0, filtered_mask.shape[0] - 1)
+
     logg.info(f"Selected mask index: {mask_index}")
-    selected_mask = filtered_mask[mask_index] 
+    selected_mask = filtered_mask[mask_index]
     # selected_mask = generator.dilate_mask(selected_mask, radius=11)
 
     # generate control images using edge detection and depth estimation for controlnet conditioning
-    control_images = generator.generate_control_images(img, selected_mask, save=True)
-
+    control_images = generator.generate_control_images(img, selected_mask, save=save_all)
     # Inpainting
     logg.info("Starting inpainting...")
     inpainted_image = generator.inpainting(img, selected_mask, prompt_inpaint,
-                 negative_prompt=negative_prompt_inpaint,
-                 control_images=control_images)
+                    negative_prompt=negative_prompt_inpaint,
+                    control_images=control_images)
     logg.info("Inpainting completed.")
 
     # Save inpainting results
     overlay = generator.overlay_mask(img, selected_mask)
-    inpainted_name = inpaint_output_name(cfg, mask_index, prompt_inpaint)
+    inpainted_name = inpaint_output_name(cfg, image_name, mask_index, prompt_inpaint, negative_prompt_inpaint)
+
     save_path = os.path.join(cfg.input.project_path, cfg.output.inpainting_results, inpainted_name)
     generator.save_inpainted_and_mask(inpainted_image, overlay, save_path=save_path)
-
+    logg.info(f"Saved inpainted image with mask overlay to {save_path}")
+    
     save_path = os.path.join(cfg.input.project_path, cfg.output.inpaited_only_results, inpainted_name)
     generator.save_image(inpainted_image, title="Inpainted Image", save_path=save_path)
     logg.info(f"Saved inpainted image to {save_path}")
-
 
     # testing segmentation on inpainted image
     # after_mask = generator.segment(inpainted_image, prompt_seg)
     # overlay = generator.overlay_mask(inpainted_image, after_mask)
     # generator.save_image(overlay, title="Segmented Inpainted Image", save_path=os.path.join(cfg.input.project_path, cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}index{mask_index}_inpainted_{prompt_seg}_{cfg.model.segmentation.split('/')[-1]}.png")) 
 
+
+
+@hydra.main(config_path=".", config_name="config")
+def main(cfg: DictConfig):
+    log_config(cfg)
+    create_output_dirs(cfg)
+    generator = DatasetGenerator(cfg)
+
+    # 1. Extract lists from config (fallback to defaults if they don't exist)
+    image_names = list(cfg.input.get("image_names", [cfg.input.get("image_name")]))
+    prompts = list(cfg.input.get("prompts_inpaint", [""]))
+    neg_prompts = list(cfg.input.get("negative_prompts_inpaint", [""]))
+
+    # If only one negative prompt is provided but multiple positive prompts, broadcast it
+    if len(neg_prompts) == 1 and len(prompts) > 1:
+        neg_prompts = neg_prompts * len(prompts)
+
+    run_mode = cfg.input.get("run_mode", "combinatorial")
+
+    # 2. Execute based on run mode
+    if run_mode == "pairwise":
+        assert len(image_names) == len(prompts), "For pairwise mode, the number of images and prompts must be equal."
+        for img_name, prompt, neg_prompt in zip(image_names, prompts, neg_prompts):
+            process_single_run(cfg, generator, img_name, prompt, neg_prompt)
+
+    elif run_mode == "combinatorial":
+        for img_name in image_names:
+            # Scenario A: Lengths match perfectly -> Treat them as pairs
+            if len(prompts) == len(neg_prompts):
+                for prompt, neg_prompt in zip(prompts, neg_prompts):
+                    process_single_run(cfg, generator, img_name, prompt, neg_prompt)
+            
+            # Scenario B: Lengths differ (or one is length 1) -> Iterate on BOTH (all combinations)
+            else:
+                for prompt in prompts:
+                    for neg_prompt in neg_prompts:
+                        process_single_run(cfg, generator, img_name, prompt, neg_prompt)   
+    else:
+        logg.error(f"Unknown run_mode: {run_mode}")
+
+  
 
 # @hydra.main(config_path=".", config_name="config")
 # def testing_panorama(cfg: DictConfig):

@@ -1,10 +1,10 @@
-device: "cuda:1"
+device: "cuda"
 
 model:
   segmentation: "facebook/sam3"
   depth_estimation: "Intel/dpt-hybrid-midas"
 
-  # inpainting: "black-forest-labs/FLUX.1-Fill-dev"
+  inpainting: "black-forest-labs/FLUX.1-Fill-dev"
   # controlnet_union: "InstantX/FLUX.1-dev-Controlnet-Union" 
 
   # controlnet_depth: "black-forest-labs/FLUX.1-Depth-dev"
@@ -12,7 +12,7 @@ model:
 
 
 
-  inpainting: "stable-diffusion-v1-5/stable-diffusion-inpainting"
+  # inpainting: "stable-diffusion-v1-5/stable-diffusion-inpainting"
   # controlnet: "lllyasviel/control_v11p_sd15_inpaint"
   # controlnet_depth: "lllyasviel/sd-controlnet-depth"
   # controlnet_canny: "lllyasviel/sd-controlnet-canny"
@@ -23,29 +23,41 @@ model:
   # vae: "madebyollin/sdxl-vae-fp16-fix"
 
 input:
-  project_path: "/home/SImany/data_generation_pipeline"
+  project_path: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator"
   image_folder: "images/"
-  image_name: "4.jpg"
-  prompt_seg: "buildings"
 
-  prompt_inpaint: "remove the building"
-  negative_prompt_inpaint: ""
+  # "combinatorial" = test every prompt on every image
+  # "pairwise" = pair image 1 with prompt 1, image 2 with prompt 2, etc.
+  run_mode: "combinatorial"
 
-  # prompt_inpaint: 
-  #   - "photorealistic street view, realistic urban scene, "
-  #   - "consistent perspective, natural lighting, high detail "
-  #   - remove the building and fill the region with plausible background continuation "
-  #   - "(sky, distant buildings, trees) matching the surrounding context"
-
-  # negative_prompt_inpaint: 
-  #   - "cartoon, painting, unrealistic, blurry, low resolution, "
-  #   - "warped geometry, bent lines, duplicate windows, repeated patterns, "
-  #   - "text, watermark, logo, artifacts, oversharpen, halo, seams"
+  image_names: 
+    - "5.jpg"
+    - "3.jpg"
+    - "6.jpg"
+    - "8.jpg"
   
+  resize_width: 1024
+  resize_height: 512
+  prompt_seg: "buildings"
+  mask_index: 0 # which instance of the prompt_seg class to mask (e.g. if there are multiple buildings, which one to select), -1 for random
+
+  prompts_inpaint: 
+    # - "photorealistic street view, realistic urban scene, "
+    - remove the building and fill the region with plausible background continuation "
+    - "(sky, trees) matching the surrounding context"
+    - "empty field"
+    - "park"
+    - "matching the surrounding context"
+    - ""
+  
+  negative_prompts_inpaint: 
+    - "cartoon, painting, warped geometry, blurry"
+    - ""
 
   canny: false
   depth: false
   inpaint: false # only for stable diffusion inpainting
+
 
 output:
   segmentation_overlay: "results/segmentation_overlay/"
