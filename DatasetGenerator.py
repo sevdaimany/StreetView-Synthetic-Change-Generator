@@ -32,15 +32,15 @@ class DatasetGenerator:
 
         if self.use_flux:
             if self.num_controlnets == 0:
-                self.inpaint_pipeline = FluxFillPipeline.from_pretrained(cfg.model.inpainting, torch_dtype=torch.bfloat16)
+                self.inpaint_pipeline = FluxFillPipeline.from_pretrained(cfg.model.inpainting, torch_dtype=torch.bfloat16).to(self.device)
             else:
                 controlnet_union = FluxControlNetModel.from_pretrained(cfg.model.controlnet_union, torch_dtype=torch.bfloat16)
                 controlnet = FluxMultiControlNetModel([controlnet_union])
                 self.inpaint_pipeline = FluxControlInpaintPipeline.from_pretrained(cfg.model.inpainting,
                         controlnet=controlnet,
-                        torch_dtype=torch.bfloat16)
+                        torch_dtype=torch.bfloat16).to(self.device)
             # self.inpaint_pipeline.enable_sequential_cpu_offload(device=self.device) # Very slow
-            self.inpaint_pipeline.enable_model_cpu_offload(device=self.device) 
+            # self.inpaint_pipeline.enable_model_cpu_offload(device=self.device) 
     
         elif self.use_xl:
             if self.num_controlnets == 0:
