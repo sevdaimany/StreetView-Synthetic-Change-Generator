@@ -13,7 +13,7 @@ import gc
 from diffusers import ControlNetModel, StableDiffusionControlNetInpaintPipeline, StableDiffusionInpaintPipeline, StableDiffusionXLControlNetInpaintPipeline, StableDiffusionXLInpaintPipeline, AutoencoderKL
 from diffusers.utils import  make_image_grid
 from transformers import DPTForDepthEstimation, DPTImageProcessor
-from diffusers import FluxControlInpaintPipeline, FluxMultiControlNetModel, FluxControlNetModel
+from diffusers import FluxControlInpaintPipeline, FluxMultiControlNetModel, FluxControlNetModel, FluxControlPipeline
 import os
 
 class DatasetGenerator:
@@ -34,11 +34,19 @@ class DatasetGenerator:
             if self.num_controlnets == 0:
                 self.inpaint_pipeline = FluxFillPipeline.from_pretrained(cfg.model.inpainting, torch_dtype=torch.bfloat16).to(self.device)
             else:
-                controlnet_union = FluxControlNetModel.from_pretrained(cfg.model.controlnet_union, torch_dtype=torch.bfloat16)
-                controlnet = FluxMultiControlNetModel([controlnet_union])
+                # controlnet_union = FluxControlNetModel.from_pretrained(cfg.model.controlnet_union, torch_dtype=torch.bfloat16)
+                # controlnet = FluxMultiControlNetModel([controlnet_union])
+                # self.inpaint_pipeline = FluxControlInpaintPipeline.from_pretrained(cfg.model.inpainting,
+                #         controlnet=controlnet,
+                #         torch_dtype=torch.bfloat16).to(self.device)
+
+                controlnet_depth = FluxControlPipeline.from_pretrained(cfg.model.controlnet_depth, torch_dtype=torch.bfloat16)  
+                controlnet_canny = FluxControlPipeline.from_pretrained(cfg.model.controlnet_canny, torch_dtype=torch.bfloat16)
                 self.inpaint_pipeline = FluxControlInpaintPipeline.from_pretrained(cfg.model.inpainting,
-                        controlnet=controlnet,
+                        controlnet=[controlnet_depth, controlnet_canny],
                         torch_dtype=torch.bfloat16).to(self.device)
+
+                
             # self.inpaint_pipeline.enable_sequential_cpu_offload(device=self.device) # Very slow
             # self.inpaint_pipeline.enable_model_cpu_offload(device=self.device) 
     
@@ -150,19 +158,19 @@ class DatasetGenerator:
 
             if self.num_controlnets == 0:
                 image = self.inpaint_pipeline(
-                prompt=prompt,
                 image=img,
+                prompt=prompt,
                 mask_image=mask,
                 generator=torch.manual_seed(0)
             ).images[0]
             else:
                 image = self.inpaint_pipeline(
-                    prompt=prompt,
                     image=img,
+                    prompt=prompt,
                     mask_image=mask,
                     control_image=control_images,
-                    control_mode=self.control_modes(),
-                    guidance_scale=3.5,
+                    negative_prompt=negative_prompt,
+                    # control_mode=self.control_modes(),
                     # generator=torch.Generator(self.device).manual_seed(0)
                     generator=torch.manual_seed(0)
                 ).images[0]
@@ -197,18 +205,18 @@ class DatasetGenerator:
         self.flush()
         return image
 
-    def generate_control_images(self, img, mask, save=False):
+    def generate_control_images(self, img, mask, image_name, save=False):
         control_images = []
         if self.cfg.input.depth:
             control_image = self.make_depth_control(img)
             if save:
-                control_image.save(os.path.join(self.cfg.input.project_path, self.cfg.output.depth_results, f"{self.cfg.input.image_name.split('.')[0]}_depth.png"))
+                control_image.save(os.path.join(self.cfg.input.project_path, self.cfg.output.depth_results, f"{image_name.split('.')[0]}_depth.png"))
             control_images.append(control_image)
 
         if self.cfg.input.canny:
             control_image = self.make_canny_control(img)
             if save:
-                control_image.save(os.path.join(self.cfg.input.project_path, self.cfg.output.edge_detection_results, f"{self.cfg.input.image_name.split('.')[0]}_canny.png"))
+                control_image.save(os.path.join(self.cfg.input.project_path, self.cfg.output.edge_detection_results, f"{image_name.split('.')[0]}_canny.png"))
             control_images.append(control_image)
 
         if self.cfg.input.inpaint:
@@ -332,13 +340,14 @@ class DatasetGenerator:
 
     def save_image(self, img, title="Image", save_path=None):
         """Utility to display and optionally save images."""
-        plt.figure(figsize=(10, 10))
-        plt.imshow(img)
-        plt.title(title)
-        plt.axis("off")
-        if save_path:
-            plt.savefig(save_path)
-        plt.show()
+        # plt.figure(figsize=(10, 10))
+        # plt.imshow(img)
+        # plt.title(title)
+        # plt.axis("off")
+        # if save_path:
+        #     plt.savefig(save_path)
+        # plt.show()
+        img.save(save_path)
 
 
     def generate_red_herring_pair(self, img, target_class, change_prompt):
