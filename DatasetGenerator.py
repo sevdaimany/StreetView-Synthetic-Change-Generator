@@ -154,7 +154,8 @@ class DatasetGenerator:
                 control_guidance_end   = 1.0
 
         if self.use_flux:
-            mask = mask.cpu().float()
+            if isinstance(mask, torch.Tensor):
+                mask = mask.cpu().float()
 
             if self.num_controlnets == 0:
                 image = self.inpaint_pipeline(
