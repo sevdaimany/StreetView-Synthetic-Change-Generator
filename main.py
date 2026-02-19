@@ -43,7 +43,7 @@ def normalize_prompt(p):
     return p    
 
 
-def inpaint_output_name(cfg, mask_index):
+def inpaint_output_name(cfg, mask_index, prompt_inpaint):
     model = ""
     if "FLUX" in cfg.model.inpainting:
         model = "flux"
@@ -51,7 +51,7 @@ def inpaint_output_name(cfg, mask_index):
         model = "sdxl"
     else:
         model = "sd"
-    inpainted_name = f"{cfg.input.image_name.split('.')[0]}idx{mask_index}_{cfg.input.prompt_seg}_{cfg.input.prompt_inpaint.split(',')[0]}_{model}"
+    inpainted_name = f"{cfg.input.image_name.split('.')[0]}idx{mask_index}_{cfg.input.prompt_seg}_{prompt_inpaint.split(',')[0]}_{model}"
     if cfg.input.canny:
         inpainted_name += "_canny"
     if cfg.input.depth:
@@ -89,7 +89,7 @@ def main(cfg: DictConfig):
     filtered_mask = mask
     logg.info(f"Filtered mask shape: {filtered_mask.shape}")
     # mask_index = random.randint(0, filtered_mask.shape[0] - 1)
-    mask_index = 1
+    mask_index = 4  
     logg.info(f"Selected mask index: {mask_index}")
     selected_mask = filtered_mask[mask_index] 
     # selected_mask = generator.dilate_mask(selected_mask, radius=11)
@@ -106,7 +106,7 @@ def main(cfg: DictConfig):
 
     # Save inpainting results
     overlay = generator.overlay_mask(img, selected_mask)
-    inpainted_name = inpaint_output_name(cfg, mask_index)
+    inpainted_name = inpaint_output_name(cfg, mask_index, prompt_inpaint)
     save_path = os.path.join(cfg.input.project_path, cfg.output.inpainting_results, inpainted_name)
     generator.save_inpainted_and_mask(inpainted_image, overlay, save_path=save_path)
 
