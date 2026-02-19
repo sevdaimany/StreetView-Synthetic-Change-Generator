@@ -58,6 +58,8 @@ def inpaint_output_name(cfg, image_name, mask_index, prompt_inpaint, negative_pr
         inpainted_name += "_depth"
     if cfg.input.inpaint:
         inpainted_name += "_inpaint"
+    if cfg.input.dilated_mask:
+        inpainted_name += "_dilated"
     inpainted_name += ".png"
     return inpainted_name
 
@@ -91,7 +93,8 @@ def process_single_run(cfg, generator, image_name, prompt_inpaint, negative_prom
 
     logg.info(f"Selected mask index: {mask_index}")
     selected_mask = filtered_mask[mask_index]
-    # selected_mask = generator.dilate_mask(selected_mask, radius=11)
+    if cfg.input.dilated_mask:
+        selected_mask = generator.dilate_mask(selected_mask, radius=15)
 
     # generate control images using edge detection and depth estimation for controlnet conditioning
     control_images = generator.generate_control_images(img, selected_mask, image_name, save=save_all)
