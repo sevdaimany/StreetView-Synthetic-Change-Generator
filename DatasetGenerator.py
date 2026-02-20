@@ -351,18 +351,6 @@ class DatasetGenerator:
         plt.show()
         
 
-    def save_image(self, img, title="Image", save_path=None):
-        """Utility to display and optionally save images."""
-        # plt.figure(figsize=(10, 10))
-        # plt.imshow(img)
-        # plt.title(title)
-        # plt.axis("off")
-        # if save_path:
-        #     plt.savefig(save_path)
-        # plt.show()
-        img.save(save_path)
-
-
     def generate_red_herring_pair(self, img, target_class, change_prompt):
             """
             Generates a change that is NOT structural (e.g., changing a window curtain).

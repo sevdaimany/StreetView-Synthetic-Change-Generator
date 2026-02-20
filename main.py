@@ -79,7 +79,6 @@ def process_single_run(cfg, generator, image_name, prompt_inpaint, negative_prom
     if save_all:
         overlay = generator.overlay_mask(img, mask)
         seg_save_path = os.path.join(cfg.input.project_path, cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}_{prompt_seg}_{cfg.model.segmentation.split('/')[-1]}.png") 
-        # generator.save_image(overlay, title="Segmented Image", save_path=seg_save_path)
         overlay.save(seg_save_path)
 
         logg.info(f"Saved segmentation overlay to {seg_save_path}")
@@ -118,7 +117,6 @@ def process_single_run(cfg, generator, image_name, prompt_inpaint, negative_prom
     logg.info(f"Saved inpainted image with mask overlay to {save_path}")
     
     save_path = os.path.join(cfg.input.project_path, cfg.output.inpaited_only_results, inpainted_name)
-    # generator.save_image(inpainted_image, title="Inpainted Image", save_path=save_path)
     inpainted_image.save(save_path)
 
     logg.info(f"Saved inpainted image to {save_path}")
@@ -126,7 +124,7 @@ def process_single_run(cfg, generator, image_name, prompt_inpaint, negative_prom
     # testing segmentation on inpainted image
     # after_mask = generator.segment(inpainted_image, prompt_seg)
     # overlay = generator.overlay_mask(inpainted_image, after_mask)
-    # generator.save_image(overlay, title="Segmented Inpainted Image", save_path=os.path.join(cfg.input.project_path, cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}index{mask_index}_inpainted_{prompt_seg}_{cfg.model.segmentation.split('/')[-1]}.png")) 
+    # inpainted_image.save(os.path.join(cfg.input.project_path, cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}index{mask_index}_inpainted_{prompt_seg}_{cfg.model.segmentation.split('/')[-1]}.png"))
     # overlay.save(os.path.join(cfg.input.project_path, cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}index{mask_index}_inpainted_{prompt_seg}_{cfg.model.segmentation.split('/')[-1]}.png"))
 
 
