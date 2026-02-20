@@ -37,6 +37,7 @@ def log_config(cfg):
         logg.info("Using Stable Diffusion + ControlNet for inpainting")
 
 
+
 def inpaint_output_name(cfg, image_name, mask_index, prompt_inpaint, negative_prompt_inpaint=None):
     model = ""
     if "FLUX" in cfg.model.inpainting:
@@ -90,6 +91,8 @@ def process_single_run(cfg, generator, image_name, prompt_inpaint, negative_prom
     mask_index = cfg.input.mask_index
     if mask_index == -1:
         mask_index = random.randint(0, filtered_mask.shape[0] - 1)
+    if mask_index == -2:
+        mask_index = generator.select_largest_mask(filtered_mask)
 
     logg.info(f"Selected mask index: {mask_index}")
     selected_mask = filtered_mask[mask_index]

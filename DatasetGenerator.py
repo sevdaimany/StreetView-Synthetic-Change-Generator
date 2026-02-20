@@ -287,6 +287,18 @@ class DatasetGenerator:
         k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (radius, radius))
         m = cv2.dilate(m, k, iterations=1)
         return Image.fromarray(m, mode="L")
+    
+    def select_largest_mask(self, masks):
+        """
+        Select the largest mask (by pixel area) from a stack of masks.
+        """
+        if masks.numel() == 0:
+            return None
+
+        areas = masks.flatten(1).sum(dim=1)
+        largest_idx = torch.argmax(areas)
+
+        return largest_idx
 
     def flush(self):
         gc.collect()
