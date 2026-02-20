@@ -170,7 +170,7 @@ class DatasetGenerator:
                     prompt=prompt,
                     mask_image=mask,
                     control_image=control_images,
-                    negative_prompt=negative_prompt,
+                    # negative_prompt=negative_prompt,
                     # control_mode=self.control_modes(),
                     # generator=torch.Generator(self.device).manual_seed(0)
                     generator=torch.manual_seed(0)
