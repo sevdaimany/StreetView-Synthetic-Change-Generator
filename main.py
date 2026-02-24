@@ -1,17 +1,17 @@
-import torch
-from DatasetGenerator import DatasetGenerator
+import os
 import cv2
+import hydra
+import torch
+import logging
+import random
 import numpy as np
 from PIL import Image
-import os
+from DatasetGenerator import DatasetGenerator
 from dotenv import load_dotenv
 from huggingface_hub import login
 from omegaconf import OmegaConf, DictConfig
-import hydra
-import logging
-import random
 from Panorama import Panorama
-
+from SAM3Correspondence import SAM3CorrespondencePipeline
 load_dotenv()
 login(os.getenv("HF_TOKEN"))
 logg = logging.getLogger(__name__)
@@ -27,6 +27,7 @@ def create_output_dirs(cfg):
     os.makedirs(os.path.join(cfg.input.project_path, cfg.output.inpaited_only_results), exist_ok=True)
     os.makedirs(os.path.join(cfg.input.project_path, cfg.output.augmentation), exist_ok=True)
     os.makedirs(os.path.join(cfg.input.project_path, cfg.output.augmentation_masks), exist_ok=True)
+    os.makedirs(os.path.join(cfg.input.project_path, cfg.output.correspondence_visualization), exist_ok=True)
 
 def log_config(cfg):
     logg.info(f"Configuration:\n{OmegaConf.to_yaml(cfg)}")
@@ -127,9 +128,8 @@ def process_single_run(cfg, generator, image_name, prompt_inpaint, negative_prom
     # overlay.save(os.path.join(cfg.input.project_path, cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}index{mask_index}_inpainted_{prompt_seg}_{cfg.model.segmentation.split('/')[-1]}.png"))
 
 
-
 @hydra.main(config_path=".", config_name="config")
-def augmentation(cfg: DictConfig):
+def augmentation_withoneimage(cfg: DictConfig):
     log_config(cfg)
     create_output_dirs(cfg)
     panorama = Panorama(cfg)
@@ -154,6 +154,58 @@ def augmentation(cfg: DictConfig):
     final_sdxl_mask.save(save_path_mask)
     final_inpainted_img.save(save_path)
     print(f"Saved augmented image to {save_path}")
+
+@hydra.main(config_path=".", config_name="config")
+def augmentation_withtwoimages(cfg: DictConfig):
+
+    log_config(cfg)
+    create_output_dirs(cfg)
+
+    # input
+    image_1, image_2 = list(cfg.input.get("image_names", [cfg.input.get("image_name")]))
+    img_1 = Image.open(os.path.join(cfg.input.project_path, cfg.input.image_folder, image_1)).convert("RGB")
+    img_2 = Image.open(os.path.join(cfg.input.project_path, cfg.input.image_folder, image_2)).convert("RGB")
+    resized_img_1 = img_1.resize((cfg.input.resize_width, cfg.input.resize_height), Image.Resampling.LANCZOS)
+    resized_img_2 = img_2.resize((cfg.input.resize_width, cfg.input.resize_height), Image.Resampling.LANCZOS)
+
+    # 1. Initialize the class globally or at the top of your script
+    sam_pipeline = SAM3CorrespondencePipeline(device="cuda")
+
+    # 2. Load your images into the session
+    sam_pipeline.load_image_pair(resized_img_1, resized_img_2)
+
+    # 3. Query different classes (images are already cached in VRAM)
+    building_matches = sam_pipeline.track_class("buildings")
+    
+    print(f"Found {len(building_matches)} buildings.")
+    if len(building_matches) > 0:
+        save_path = os.path.join(cfg.input.project_path, cfg.output.correspondence_visualization, f"building_{image_1.split('.')[0]}_{image_2.split('.')[0]}.png")
+        sam_pipeline.visualize_correspondence(resized_img_1, resized_img_2, building_matches, save_path=save_path)
+
+    sign_matches = sam_pipeline.track_class("traffic signs")
+    print(f"Found {len(sign_matches)} traffic signs.")
+    if len(sign_matches) > 0:
+        save_path = os.path.join(cfg.input.project_path, cfg.output.correspondence_visualization, f"trafficsign_{image_1.split('.')[0]}_{image_2.split('.')[0]}.png")
+        sam_pipeline.visualize_correspondence(resized_img_1, resized_img_2, sign_matches, save_path=save_path)
+
+    road_matches = sam_pipeline.track_class("roads")
+    print(f"Found {len(road_matches)} roads.")
+    if len(road_matches) > 0:
+        save_path = os.path.join(cfg.input.project_path, cfg.output.correspondence_visualization, f"road_{image_1.split('.')[0]}_{image_2.split('.')[0]}.png")
+        sam_pipeline.visualize_correspondence(resized_img_1, resized_img_2, road_matches, save_path=save_path)
+
+    # 4. Clean up the images when you are ready to move to the next pair
+    sam_pipeline.clear_current_pair()
+    # 5. Shut it down completely at the very end of your script
+    sam_pipeline.shutdown()
+
+    # later for synthetic change
+    selected_instance = random.choice(building_matches)
+    # 3. Extract the variables for your inpainting function
+    instance_id = selected_instance["instance_id"]
+    mask_1 = selected_instance["before_mask"]
+    mask_2 = selected_instance["after_mask"] # Mask 1 shape: (512, 1024)    
+    print(f"Selected instance ID: {instance_id} | Mask 1 shape: {mask_1.shape} | Mask 2 shape: {mask_2.shape}")
 
 
 @hydra.main(config_path=".", config_name="config")
@@ -203,4 +255,5 @@ def main(cfg: DictConfig):
 
 if __name__ == "__main__":
     # main()
-    augmentation()
+    # augmentation_withoneimage()
+    augmentation_withtwoimages()
