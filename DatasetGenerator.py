@@ -169,7 +169,7 @@ class DatasetGenerator:
         self.flush()
 
         return results["masks"]
-
+    
     def control_modes(self):
         modes = []
         if self.cfg.input.depth:
@@ -233,7 +233,7 @@ class DatasetGenerator:
                 height=height,
                 generator=torch.Generator(self.device).manual_seed(0),
                 output_type="latent").images[0]
-                
+
                 if self.cfg.augmentation.refiner:
                     refined_image = self.refiner(prompt=prompt, image=image[None, :]).images[0]
                     # Blur the mask slightly so the transition between original and generated is seamless
@@ -472,49 +472,87 @@ class DatasetGenerator:
                 
             return masks[valid_indices]
 
-    def process_object(self, pano_img, class_name):
-            """
-            Finds, Masks, and Removes an object from the panorama.
-            Returns:
-                - Modified Panorama
-                - Global Change Mask (Equirectangular)
-            """
-            h, w = pano_img.shape[:2]
-            global_mask = np.zeros((h, w), dtype=np.uint8)
-            modified_pano = pano_img.copy()
-            
-            # 1. Look around to find the object (Scan 4 directions)
-            # In a real pipeline, you'd probably use a lightweight detector to find WHICH crop to process.
-            # Here we just blindly process the "Front" view (Yaw=0) for demonstration.
-            yaw, pitch = 0, 0 
-            
-            # 2. Extract Perspective Crop
-            crop, map_x, map_y = self.cam.get_perspective_crop(pano_img, fov_deg=90, yaw=yaw, pitch=pitch)
-            
-            # 3. Get Mask (SAM)
-            # Note: Pass the class name to SAM/GroundingDINO here
-            crop_mask = self.fake_sam_inference(crop, class_name)
-            
-            # Only proceed if object found
-            if np.sum(crop_mask) > 0:
-                # 4. Inpaint (MAT) - Remove the object
-                # We assume crop_mask is 1 where object IS. MAT removes it.
-                inpainted_crop = self.fake_mat_inference(crop, crop_mask)
-                
-                # 5. Stitch Back
-                # A. Stitch the modified pixels
-                self.cam.stitch_crop_back(modified_pano, inpainted_crop, map_x, map_y)
-                
-                # B. Stitch the mask (so we have a ground truth label)
-                # We need to reshape mask to have a channel dim for the stitch function
-                crop_mask_3ch = np.stack([crop_mask]*3, axis=-1) 
-                # We temporarily use a 3-channel mask container for the panorama
-                global_mask_3ch = np.zeros((h, w, 3), dtype=np.uint8)
-                
-                self.cam.stitch_crop_back(global_mask_3ch, crop_mask_3ch, map_x, map_y)
-                global_mask = global_mask_3ch[:,:,0] # Flatten back to 1 channel
 
-            return modified_pano, global_mask
+    def inference(self, image_name, prompt_inpaint, negative_prompt_inpaint, save_all=True):
+        
+        image_path = os.path.join(self.cfg.input.project_path, self.cfg.input.image_folder, image_name)
+        img = Image.open(image_path).convert("RGB")
+        if 'panorama' in image_name.lower():
+            img = img.resize((self.cfg.input.resize_width, self.cfg.input.resize_height), Image.BILINEAR)
 
+        # Segmentation and Mask Generation
+        prompt_seg = self.cfg.input.prompt_seg
+        mask = self.segment(img, prompt_seg)
+        print(f"Generated mask shape: {mask.shape}")
+        if save_all:
+            overlay = self.overlay_mask(img, mask)
+            seg_save_path = os.path.join(self.cfg.input.project_path, self.cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}_{prompt_seg}_{self.cfg.model.segmentation.split('/')[-1]}.png") 
+            overlay.save(seg_save_path)
+            print(f"Saved segmentation overlay to {seg_save_path}")
 
+        # Filter masks near borders and select one for inpainting
+        filtered_mask = mask
+        # filtered_mask = self.filter_masks(mask)
+        print(f"Filtered mask shape: {filtered_mask.shape}")
+        mask_index = self.cfg.input.mask_index
+        if mask_index == -1:
+            mask_index = random.randint(0, filtered_mask.shape[0] - 1)
+        if mask_index == -2:
+            mask_index = self.select_largest_mask(filtered_mask)
+        print(f"Selected mask index: {mask_index}")
+        selected_mask = filtered_mask[mask_index]
+        if self.cfg.input.dilated_mask:
+            selected_mask = self.dilate_mask(selected_mask, radius=15)
 
+        # generate control images using edge detection and depth estimation for controlnet conditioning
+        control_images = self.generate_control_images(img, selected_mask, image_name, save=save_all)
+
+        # Inpainting
+        inpainted_image = self.inpainting(img, selected_mask, prompt_inpaint,
+                        negative_prompt=negative_prompt_inpaint,
+                        control_images=control_images)
+
+        # Save inpainting results
+        overlay = self.overlay_mask(img, selected_mask)
+        inpainted_name = self.inpaint_output_name(self.cfg, image_name, mask_index, prompt_inpaint, negative_prompt_inpaint)
+
+        save_path = os.path.join(self.cfg.input.project_path, self.cfg.output.inpainting_results, inpainted_name)
+        self.save_inpainted_and_mask(inpainted_image, overlay, save_path=save_path)
+        print(f"Saved inpainted image with mask overlay to {save_path}")
+        
+        save_path = os.path.join(self.cfg.input.project_path, self.cfg.output.inpaited_only_results, inpainted_name)
+        inpainted_image.save(save_path)
+
+        print(f"Saved inpainted image to {save_path}")
+
+        # testing segmentation on inpainted image
+        # after_mask = self.segment(inpainted_image, prompt_seg)
+        # overlay = self.overlay_mask(inpainted_image, after_mask)
+        # inpainted_image.save(os.path.join(self.cfg.input.project_path, self.cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}index{mask_index}_inpainted_{prompt_seg}_{self.cfg.model.segmentation.split('/')[-1]}.png"))
+        # overlay.save(os.path.join(self.cfg.input.project_path, self.cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}index{mask_index}_inpainted_{prompt_seg}_{self.cfg.model.segmentation.split('/')[-1]}.png"))
+
+    def inpaint_output_name(self, cfg, image_name, mask_index, prompt_inpaint, negative_prompt_inpaint=None):
+        model = ""
+        if self.use_flux:
+            model = "flux"
+        elif self.use_xl:
+            model = "sdxl"
+        else:
+            model = "sd"
+
+        len_neg_prompt_toshow = min(20, len(negative_prompt_inpaint)) if negative_prompt_inpaint else 0
+        len_prompt_toshow = min(20, len(prompt_inpaint)) if prompt_inpaint else 0
+        neg_prompt_part = negative_prompt_inpaint[:len_neg_prompt_toshow] if negative_prompt_inpaint else "NoPrompt"
+        prompt_part = prompt_inpaint[:len_prompt_toshow] if prompt_inpaint else "PosNoPrompt"
+        
+        inpainted_name = f"{image_name.split('.')[0]}idx{mask_index}_{self.cfg.input.prompt_seg}_{prompt_part}_Neg{neg_prompt_part}_{model}"
+        if self.cfg.input.canny:
+            inpainted_name += "_canny"
+        if self.cfg.input.depth:
+            inpainted_name += "_depth"
+        if self.cfg.input.inpaint:
+            inpainted_name += "_inpaint"
+        if self.cfg.input.dilated_mask:
+            inpainted_name += "_dilated"
+        inpainted_name += ".png"
+        return inpainted_name

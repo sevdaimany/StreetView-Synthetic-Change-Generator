@@ -10,12 +10,7 @@ from PIL import Image
 import torch.nn.functional as F
 
 class Panorama:
-    """
-    Handles the complex geometry of 360 images:
-    1. Rotating the entire sphere (Viewpoint Simulation)
-    2. Extracting flat perspective crops (for Inpainting models)
-    3. Stitching crops back onto the sphere
-    """
+    
     def __init__(self, cfg):
         self.cfg = cfg
         self.depth_pipe = pipeline(task="depth-estimation", model=cfg.augmentation.depth_estimation)
