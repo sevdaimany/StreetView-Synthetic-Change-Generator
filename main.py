@@ -9,8 +9,8 @@ from huggingface_hub import login
 from omegaconf import OmegaConf, DictConfig
 import hydra
 import logging
-# import Panorama
 import random
+from Panorama import Panorama
 
 load_dotenv()
 login(os.getenv("HF_TOKEN"))
@@ -19,13 +19,14 @@ logg = logging.getLogger(__name__)
 
 def create_output_dirs(cfg):
     """Utility to create output directories if they don't exist."""
-    os.makedirs(cfg.output.segmentation_overlay, exist_ok=True)
-    os.makedirs(cfg.output.inpainting_results, exist_ok=True)
-    os.makedirs(cfg.output.edge_detection_results, exist_ok=True)
-    os.makedirs(cfg.output.red_herring_results, exist_ok=True)
-    os.makedirs(cfg.output.depth_results, exist_ok=True)
-    os.makedirs(cfg.output.inpaited_only_results, exist_ok=True)
-
+    os.makedirs(os.path.join(cfg.input.project_path, cfg.output.segmentation_overlay), exist_ok=True)
+    os.makedirs(os.path.join(cfg.input.project_path, cfg.output.inpainting_results), exist_ok=True)
+    os.makedirs(os.path.join(cfg.input.project_path, cfg.output.edge_detection_results), exist_ok=True)
+    os.makedirs(os.path.join(cfg.input.project_path, cfg.output.red_herring_results), exist_ok=True)
+    os.makedirs(os.path.join(cfg.input.project_path, cfg.output.depth_results), exist_ok=True)
+    os.makedirs(os.path.join(cfg.input.project_path, cfg.output.inpaited_only_results), exist_ok=True)
+    os.makedirs(os.path.join(cfg.input.project_path, cfg.output.augmentation), exist_ok=True)
+    os.makedirs(os.path.join(cfg.input.project_path, cfg.output.augmentation_masks), exist_ok=True)
 
 def log_config(cfg):
     logg.info(f"Configuration:\n{OmegaConf.to_yaml(cfg)}")
@@ -35,8 +36,6 @@ def log_config(cfg):
         logg.info("Using Stable Diffusion XL + ControlNet for inpainting")
     else:
         logg.info("Using Stable Diffusion + ControlNet for inpainting")
-
-
 
 def inpaint_output_name(cfg, image_name, mask_index, prompt_inpaint, negative_prompt_inpaint=None):
     model = ""
@@ -128,6 +127,35 @@ def process_single_run(cfg, generator, image_name, prompt_inpaint, negative_prom
     # overlay.save(os.path.join(cfg.input.project_path, cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}index{mask_index}_inpainted_{prompt_seg}_{cfg.model.segmentation.split('/')[-1]}.png"))
 
 
+
+@hydra.main(config_path=".", config_name="config")
+def augmentation(cfg: DictConfig):
+    log_config(cfg)
+    create_output_dirs(cfg)
+    panorama = Panorama(cfg)
+    generator = DatasetGenerator(cfg)
+
+    # input
+    image_path = os.path.join(cfg.input.project_path, cfg.input.image_folder, cfg.input.image_name)
+    img = Image.open(image_path).convert("RGB")
+    resized_img = img.resize((cfg.input.resize_width, cfg.input.resize_height), Image.Resampling.LANCZOS)
+    
+    # Augmentation
+    warped_img, valid_mask, depth_pil = panorama.augment(resized_img, cfg.input.image_name)
+
+    # Refinement
+    final_inpainted_img, final_sdxl_mask = generator.refine_novel_view(warped_img, valid_mask, cfg.augmentation.prompt_inpaint)
+    
+    base_name, _ = os.path.splitext(cfg.input.image_name)
+    save_path_mask = os.path.join(cfg.input.project_path, cfg.output.augmentation_masks, f"{base_name}_z{cfg.augmentation.translation_z}_deg{cfg.augmentation.yaw_deg}.png")
+    save_path = os.path.join(cfg.input.project_path, cfg.output.augmentation, f"{base_name}_z{cfg.augmentation.translation_z}_deg{cfg.augmentation.yaw_deg}.png")
+    
+    warped_img.save(os.path.join(cfg.input.project_path, cfg.output.augmentation, f"beforeinpaint_{base_name}_z{cfg.augmentation.translation_z}_deg{cfg.augmentation.yaw_deg}.png"))
+    final_sdxl_mask.save(save_path_mask)
+    final_inpainted_img.save(save_path)
+    print(f"Saved augmented image to {save_path}")
+
+
 @hydra.main(config_path=".", config_name="config")
 def main(cfg: DictConfig):
     log_config(cfg)
@@ -168,15 +196,11 @@ def main(cfg: DictConfig):
 
   
 
-# @hydra.main(config_path=".", config_name="config")
-# def testing_panorama(cfg: DictConfig):
-#     log_config(cfg)
-#     create_output_dirs(cfg)
-#     cam = Panorama()
     
 
 
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    augmentation()

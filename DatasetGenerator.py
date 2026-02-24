@@ -13,8 +13,10 @@ import gc
 from diffusers import ControlNetModel, StableDiffusionControlNetInpaintPipeline, StableDiffusionInpaintPipeline, StableDiffusionXLControlNetInpaintPipeline, StableDiffusionXLInpaintPipeline, AutoencoderKL
 from diffusers.utils import  make_image_grid
 from transformers import DPTForDepthEstimation, DPTImageProcessor
-from diffusers import FluxControlInpaintPipeline, FluxMultiControlNetModel, FluxControlNetModel, FluxControlPipeline
+from diffusers import FluxControlInpaintPipeline, FluxMultiControlNetModel, FluxControlNetModel, FluxControlPipeline, DiffusionPipeline
 import os
+from PIL import ImageFilter
+
 
 class DatasetGenerator:
     def __init__(self, cfg):
@@ -58,6 +60,16 @@ class DatasetGenerator:
                     vae=vae,
                     torch_dtype=torch.float16,
                     variant="fp16")
+                if cfg.augmentation.refiner:
+                    self.refiner = DiffusionPipeline.from_pretrained(
+                        "stabilityai/stable-diffusion-xl-refiner-1.0",
+                        text_encoder_2=self.inpaint_pipeline.text_encoder_2,
+                        vae=self.inpaint_pipeline.vae,
+                        torch_dtype=torch.float16,
+                        use_safetensors=True,
+                        variant="fp16",
+                    )
+                    self.refiner.enable_model_cpu_offload(device=self.device) 
                 self.inpaint_pipeline.enable_model_cpu_offload(device=self.device) 
             else:
                 controllers = self.controlnet_models()
@@ -92,6 +104,34 @@ class DatasetGenerator:
             self.depth_processor = DPTImageProcessor.from_pretrained(cfg.model.depth_estimation)
             self.depth_model = DPTForDepthEstimation.from_pretrained(cfg.model.depth_estimation,
                 use_safetensors=True).to(self.device)
+
+    def refine_novel_view(self, warped_img, valid_mask, prompt):
+        """
+        Takes the mathematically warped image and uses SDXL 
+        to synthesize a photorealistic, artifact-free novel view.
+        """
+        warped_cv = np.array(warped_img)
+        valid_mask_cv = np.array(valid_mask) # 255 = valid, 0 = hole
+        raw_holes_mask = cv2.bitwise_not(valid_mask_cv) # (Now: 255 = holes/noise, 0 = valid image)
+
+        # B. Clean the image: Fix the image's micro-holes using fast classical inpainting (Telea).
+        cleaned_warped_cv = cv2.inpaint(warped_cv, raw_holes_mask, inpaintRadius=1, flags=cv2.INPAINT_TELEA)
+
+        # C. Clean the mask: Morphological OPENING
+        # This completely ERASES the tiny scattered noise, leaving only the large camera-movement holes.
+        kernel_small = np.ones((3, 3), np.uint8)
+        clean_sdxl_mask = cv2.morphologyEx(raw_holes_mask, cv2.MORPH_OPEN, kernel_small)
+
+        # D. Dilate the surviving large holes so SDXL can blend them smoothly
+        kernel_large = np.ones((7, 7), np.uint8) 
+        dilated_sdxl_mask = cv2.dilate(clean_sdxl_mask, kernel_large, iterations=1)
+
+        # Convert back to PIL for SDXL
+        final_warped_img = Image.fromarray(cleaned_warped_cv)
+        final_sdxl_mask = Image.fromarray(dilated_sdxl_mask)
+        final_inpainted_img = self.inpainting(final_warped_img, final_sdxl_mask, prompt)
+        
+        return final_inpainted_img, final_sdxl_mask
 
 
     def controlnet_models(self):
@@ -138,13 +178,13 @@ class DatasetGenerator:
             modes.append(0)
         return modes
 
-    def inpainting(self, img, mask, prompt, control_images, negative_prompt=""):
+    def inpainting(self, img, mask, prompt, control_images=None, negative_prompt=""):
         """Inpaints the masked region of an image using the FluxFillPipeline."""
-        if len(control_images) == 2: # both depth and canny
+        if self.num_controlnets == 2: # both depth and canny
                 controlnet_conditioning_scale = [0.85, 0.65]  # [depth, canny] tune
                 control_guidance_start = [0.0, 0.0]
                 control_guidance_end   = [1.0, 1.0]
-        if len(control_images) == 3:
+        if self.num_controlnets == 3:
                 controlnet_conditioning_scale = [0.55, 0.55, 0.85]  # [depth, canny, inpaint_mask] tune
                 control_guidance_start = [0.0, 0.0, 0.0]
                 control_guidance_end   = [1.0, 1.0, 1.0]
@@ -153,6 +193,7 @@ class DatasetGenerator:
                 control_guidance_start = 0.0
                 control_guidance_end   = 1.0
 
+        width, height = img.size
         if self.use_flux:
             if isinstance(mask, torch.Tensor):
                 mask = mask.cpu().float()
@@ -188,8 +229,19 @@ class DatasetGenerator:
                 negative_prompt=negative_prompt,
                 image=img,
                 mask_image=mask,
+                width=width,    
+                height=height,
                 generator=torch.Generator(self.device).manual_seed(0),
-            ).images[0]
+                output_type="latent").images[0]
+                
+                if self.cfg.augmentation.refiner:
+                    refined_image = self.refiner(prompt=prompt, image=image[None, :]).images[0]
+                    # Blur the mask slightly so the transition between original and generated is seamless
+                    blend_mask = mask.filter(ImageFilter.GaussianBlur(radius=3))
+                    
+                    # Image.composite(foreground, background, mask), Where the mask is white, it uses the refined_image. 
+                    # Where the mask is black, it strictly uses the original_warped_img!
+                    image = Image.composite(refined_image, img, blend_mask)
             else:   
                 image = self.inpaint_pipeline(
                     prompt=prompt,
