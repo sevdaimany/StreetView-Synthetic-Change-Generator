@@ -133,7 +133,6 @@ class DatasetGenerator:
         
         return final_inpainted_img, final_sdxl_mask
 
-
     def controlnet_models(self):
         models = []
         if self.cfg.input.depth:
@@ -146,7 +145,6 @@ class DatasetGenerator:
             controlnet_mask = ControlNetModel.from_pretrained(self.cfg.model.controlnet, torch_dtype=torch.float16, use_safetensors=True)
             models.append(controlnet_mask)
         return models
-
 
     def segment(self, img, prompt):
         """Generates a segmentation mask for the given image and prompt using the SAM model."""
@@ -193,7 +191,7 @@ class DatasetGenerator:
                 control_guidance_start = 0.0
                 control_guidance_end   = 1.0
 
-        width, height = img.size
+
         if self.use_flux:
             if isinstance(mask, torch.Tensor):
                 mask = mask.cpu().float()
@@ -229,10 +227,11 @@ class DatasetGenerator:
                 negative_prompt=negative_prompt,
                 image=img,
                 mask_image=mask,
-                width=width,    
-                height=height,
+                # width=width,    
+                # height=height,
                 generator=torch.Generator(self.device).manual_seed(0),
-                output_type="latent").images[0]
+                # output_type="latent" #for augmentation
+                ).images[0]
 
                 if self.cfg.augmentation.refiner:
                     refined_image = self.refiner(prompt=prompt, image=image[None, :]).images[0]
@@ -472,7 +471,40 @@ class DatasetGenerator:
                 
             return masks[valid_indices]
 
+    def get_pothole_sub_mask(self, road_mask, img_size):
+        width, height = img_size
+        
+        # road_mask was 0.0-1.0 floats or booleans. -> scaled to 0-255
+        road_arr = road_mask.cpu().numpy()
+        mask_np = (road_arr > 0).astype(np.uint8) * 255
+        
+        coords = np.argwhere(mask_np > 0)
+        if len(coords) == 0:
+            return road_mask
+        
+        # Pick a random point on the road
+        center_idx = np.random.randint(len(coords))
+        center_y, center_x = coords[center_idx]
+        
+        # pothole_w = int(width * 0.06) 
+        # pothole_h = int(height * 0.02)
+        
+        pothole_w = int(width * 0.08) 
+        pothole_h = int(height * 0.04)
 
+        pothole_mask = np.zeros_like(mask_np)
+        
+        # (center_x, center_y), (axes_width, axes_height), angle, startAngle, endAngle, color, thickness
+        cv2.ellipse(pothole_mask, (center_x, center_y), (pothole_w, pothole_h), 0, 0, 360, 255, -1)
+        
+        # Both masks are now 0-255
+        final_mask = cv2.bitwise_and(pothole_mask, mask_np)
+        
+        # Convert back to 0.0 - 1.0 float scale for the PyTorch Diffusers pipeline
+        final_mask = (final_mask / 255.0).astype(np.float32)
+    
+        return torch.from_numpy(final_mask).to(self.device)
+        
     def inference(self, image_name, prompt_inpaint, negative_prompt_inpaint, save_all=True):
         
         image_path = os.path.join(self.cfg.input.project_path, self.cfg.input.image_folder, image_name)
@@ -501,6 +533,12 @@ class DatasetGenerator:
             mask_index = self.select_largest_mask(filtered_mask)
         print(f"Selected mask index: {mask_index}")
         selected_mask = filtered_mask[mask_index]
+
+        if self.cfg.input.add_pothole and prompt_seg == "roads":
+            print("Adding pothole to the mask...")
+            selected_mask = self.get_pothole_sub_mask(selected_mask, img.size)
+        
+        
         if self.cfg.input.dilated_mask:
             selected_mask = self.dilate_mask(selected_mask, radius=15)
 
