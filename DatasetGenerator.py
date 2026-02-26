@@ -504,8 +504,8 @@ class DatasetGenerator:
         final_mask = (final_mask / 255.0).astype(np.float32)
     
         return torch.from_numpy(final_mask).to(self.device)
-        
-    def inference(self, image_name, prompt_inpaint, negative_prompt_inpaint, save_all=True):
+
+    def inference(self, image_name, prompt_seg, prompt_inpaint, seg_mask=None, negative_prompt_inpaint=None, save_all=False):
         
         image_path = os.path.join(self.cfg.input.project_path, self.cfg.input.image_folder, image_name)
         img = Image.open(image_path).convert("RGB")
@@ -513,19 +513,24 @@ class DatasetGenerator:
             img = img.resize((self.cfg.input.resize_width, self.cfg.input.resize_height), Image.BILINEAR)
 
         # Segmentation and Mask Generation
-        prompt_seg = self.cfg.input.prompt_seg
-        mask = self.segment(img, prompt_seg)
-        print(f"Generated mask shape: {mask.shape}")
-        if save_all:
-            overlay = self.overlay_mask(img, mask)
-            seg_save_path = os.path.join(self.cfg.input.project_path, self.cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}_{prompt_seg}_{self.cfg.model.segmentation.split('/')[-1]}.png") 
-            overlay.save(seg_save_path)
-            print(f"Saved segmentation overlay to {seg_save_path}")
+        if seg_mask is not None:
+            print("Using provided segmentation mask.")
+            mask = seg_mask
+        else:
+            mask = self.segment(img, prompt_seg)
+            if mask.shape[0] == 0:
+                print(f"No valid masks found for prompt '{prompt_seg}' in image '{image_name}'. Skipping inpainting.")
+                return
+            print(f"Generated mask shape: {mask.shape}")
+            if save_all:
+                overlay = self.overlay_mask(img, mask)
+                seg_save_path = os.path.join(self.cfg.input.project_path, self.cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}_{prompt_seg}_{self.cfg.model.segmentation.split('/')[-1]}.png") 
+                overlay.save(seg_save_path)
+                print(f"Saved segmentation overlay to {seg_save_path}")
 
         # Filter masks near borders and select one for inpainting
         filtered_mask = mask
         # filtered_mask = self.filter_masks(mask)
-        print(f"Filtered mask shape: {filtered_mask.shape}")
         mask_index = self.cfg.input.mask_index
         if mask_index == -1:
             mask_index = random.randint(0, filtered_mask.shape[0] - 1)
@@ -552,7 +557,7 @@ class DatasetGenerator:
 
         # Save inpainting results
         overlay = self.overlay_mask(img, selected_mask)
-        inpainted_name = self.inpaint_output_name(self.cfg, image_name, mask_index, prompt_inpaint, negative_prompt_inpaint)
+        inpainted_name = self.inpaint_output_name(self.cfg, image_name, mask_index, prompt_seg, prompt_inpaint, negative_prompt_inpaint)
 
         save_path = os.path.join(self.cfg.input.project_path, self.cfg.output.inpainting_results, inpainted_name)
         self.save_inpainted_and_mask(inpainted_image, overlay, save_path=save_path)
@@ -569,7 +574,8 @@ class DatasetGenerator:
         # inpainted_image.save(os.path.join(self.cfg.input.project_path, self.cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}index{mask_index}_inpainted_{prompt_seg}_{self.cfg.model.segmentation.split('/')[-1]}.png"))
         # overlay.save(os.path.join(self.cfg.input.project_path, self.cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}index{mask_index}_inpainted_{prompt_seg}_{self.cfg.model.segmentation.split('/')[-1]}.png"))
 
-    def inpaint_output_name(self, cfg, image_name, mask_index, prompt_inpaint, negative_prompt_inpaint=None):
+
+    def inpaint_output_name(self, cfg, image_name, mask_index, prompt_seg, prompt_inpaint, negative_prompt_inpaint=None):
         model = ""
         if self.use_flux:
             model = "flux"
@@ -583,7 +589,7 @@ class DatasetGenerator:
         neg_prompt_part = negative_prompt_inpaint[:len_neg_prompt_toshow] if negative_prompt_inpaint else "NoPrompt"
         prompt_part = prompt_inpaint[:len_prompt_toshow] if prompt_inpaint else "PosNoPrompt"
         
-        inpainted_name = f"{image_name.split('.')[0]}idx{mask_index}_{self.cfg.input.prompt_seg}_{prompt_part}_Neg{neg_prompt_part}_{model}"
+        inpainted_name = f"{image_name.split('.')[0]}idx{mask_index}_{prompt_seg}_{prompt_part}_Neg{neg_prompt_part}_{model}"
         if self.cfg.input.canny:
             inpainted_name += "_canny"
         if self.cfg.input.depth:

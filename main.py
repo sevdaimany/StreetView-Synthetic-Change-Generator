@@ -121,6 +121,9 @@ def augmentation_withtwoimages(cfg: DictConfig):
 
 @hydra.main(config_path=".", config_name="config")
 def main(cfg: DictConfig):
+    """ 
+    For evaluating different prompts and models on a single segmentation class.
+    """
     log_config(cfg)
     create_output_dirs(cfg)
     generator = DatasetGenerator(cfg)
@@ -129,6 +132,7 @@ def main(cfg: DictConfig):
     image_names = list(cfg.input.get("image_names", [cfg.input.get("image_name")]))
     prompts = list(cfg.input.get("prompts_inpaint", [""]))
     neg_prompts = list(cfg.input.get("negative_prompts_inpaint", [""]))
+    prompt_seg = cfg.input.get("prompt_seg", "buildings")
 
     # If only one negative prompt is provided but multiple positive prompts, broadcast it
     if len(neg_prompts) == 1 and len(prompts) > 1:
@@ -140,7 +144,7 @@ def main(cfg: DictConfig):
     if run_mode == "pairwise":
         assert len(image_names) == len(prompts), "For pairwise mode, the number of images and prompts must be equal."
         for img_name, prompt, neg_prompt in zip(image_names, prompts, neg_prompts):
-            generator.inference(img_name, prompt, neg_prompt)
+            generator.inference(img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt)
 
     elif run_mode == "combinatorial":
         for img_name in image_names:
@@ -149,25 +153,49 @@ def main(cfg: DictConfig):
             if len(prompts) == len(neg_prompts):
                 for prompt, neg_prompt in zip(prompts, neg_prompts):
                     logg.info(f"--- Processing: {img_name} | Prompt: '{prompt}' | Negative Prompt: '{neg_prompt}' ---")
-                    generator.inference(img_name, prompt, neg_prompt)
+                    generator.inference(img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt)
             
             # Scenario B: Lengths differ (or one is length 1) -> Iterate on BOTH (all combinations)
             else:
                 for prompt in prompts:
                     for neg_prompt in neg_prompts:
                         logg.info(f"--- Processing: {img_name} | Prompt: '{prompt}' | Negative Prompt: '{neg_prompt}' ---")
-                        generator.inference(img_name, prompt, neg_prompt)   
+                        generator.inference(img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt)   
     else:
         logg.error(f"Unknown run_mode: {run_mode}")
 
   
+@hydra.main(config_path=".", config_name="config")
+def automated_run(cfg: DictConfig):
+    log_config(cfg)
+    create_output_dirs(cfg)
+    generator = DatasetGenerator(cfg)
+    class_to_prompt = cfg.input.get("prompts_seg", {})   
+    classes = class_to_prompt.keys()
+    logg.info(f"Classes to process: {classes}")
+    logg.info(f"Class to prompt mapping: {class_to_prompt}")
 
-    
+    for img_name in os.listdir(os.path.join(cfg.input.project_path, cfg.input.image_folder)):
+
+        for class_name in classes:
+            prompt_seg = class_name
+            prompt = class_to_prompt[class_name]
+
+            if isinstance(prompt, str):
+                prompt_inpaint = prompt
+            else:
+                prompt_inpaint = random.choice(prompt)
+            logg.info(f"Processing {img_name} for class '{prompt_seg}' with prompt '{prompt_inpaint}'")
+            
+            generator.inference(img_name, prompt_seg=prompt_seg, prompt_inpaint=prompt_inpaint, save_all=True)
+
+
 
 
 
 
 if __name__ == "__main__":
-    main()
+    # main()
     # augmentation_withoneimage()
     # augmentation_withtwoimages()
+    automated_run()
