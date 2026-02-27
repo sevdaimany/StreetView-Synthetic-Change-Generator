@@ -10,8 +10,9 @@ from DatasetGenerator import DatasetGenerator
 from dotenv import load_dotenv
 from huggingface_hub import login
 from omegaconf import OmegaConf, DictConfig
-from Panorama import Panorama
-from SAM3Correspondence import SAM3CorrespondencePipeline
+# from Panorama import Panorama
+# from SAM3Correspondence import SAM3CorrespondencePipeline
+from ProceduralPromptGenerator import ProceduralPromptGenerator
 load_dotenv()
 login(os.getenv("HF_TOKEN"))
 logg = logging.getLogger(__name__)
@@ -38,6 +39,14 @@ def log_config(cfg):
     else:
         logg.info("Using Stable Diffusion + ControlNet for inpainting")
 
+
+def load_image(image_name, cfg):
+    image_path = os.path.join(cfg.input.project_path, cfg.input.image_folder, image_name)
+    img = Image.open(image_path).convert("RGB")
+    if 'panorama' in image_name.lower():
+        img = img.resize((cfg.input.resize_width, cfg.input.resize_height), Image.BILINEAR)
+    return img
+    
 
 @hydra.main(config_path=".", config_name="config")
 def augmentation_withoneimage(cfg: DictConfig):
@@ -144,7 +153,8 @@ def main(cfg: DictConfig):
     if run_mode == "pairwise":
         assert len(image_names) == len(prompts), "For pairwise mode, the number of images and prompts must be equal."
         for img_name, prompt, neg_prompt in zip(image_names, prompts, neg_prompts):
-            generator.inference(img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt)
+            img = load_image(img_name, cfg)
+            generator.inference(img, img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt)
 
     elif run_mode == "combinatorial":
         for img_name in image_names:
@@ -153,14 +163,16 @@ def main(cfg: DictConfig):
             if len(prompts) == len(neg_prompts):
                 for prompt, neg_prompt in zip(prompts, neg_prompts):
                     logg.info(f"--- Processing: {img_name} | Prompt: '{prompt}' | Negative Prompt: '{neg_prompt}' ---")
-                    generator.inference(img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt)
+                    img = load_image(img_name, cfg)
+                    generator.inference(img, img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt)
             
             # Scenario B: Lengths differ (or one is length 1) -> Iterate on BOTH (all combinations)
             else:
                 for prompt in prompts:
                     for neg_prompt in neg_prompts:
                         logg.info(f"--- Processing: {img_name} | Prompt: '{prompt}' | Negative Prompt: '{neg_prompt}' ---")
-                        generator.inference(img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt)   
+                        img = load_image(img_name, cfg)
+                        generator.inference(img, img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt)   
     else:
         logg.error(f"Unknown run_mode: {run_mode}")
 
@@ -170,12 +182,16 @@ def automated_run(cfg: DictConfig):
     log_config(cfg)
     create_output_dirs(cfg)
     generator = DatasetGenerator(cfg)
+    prompt_gen = ProceduralPromptGenerator()
     class_to_prompt = cfg.input.get("prompts_seg", {})   
     classes = class_to_prompt.keys()
     logg.info(f"Classes to process: {classes}")
     logg.info(f"Class to prompt mapping: {class_to_prompt}")
+    red_herring_classes = list(cfg.input.get("red_herring_classes", []))
 
     for img_name in os.listdir(os.path.join(cfg.input.project_path, cfg.input.image_folder)):
+
+        img = load_image(img_name, cfg)
 
         for class_name in classes:
             prompt_seg = class_name
@@ -187,7 +203,27 @@ def automated_run(cfg: DictConfig):
                 prompt_inpaint = random.choice(prompt)
             logg.info(f"Processing {img_name} for class '{prompt_seg}' with prompt '{prompt_inpaint}'")
             
-            generator.inference(img_name, prompt_seg=prompt_seg, prompt_inpaint=prompt_inpaint, save_all=True)
+            inpainted_image, selected_mask = generator.inference(img, img_name, prompt_seg=prompt_seg, prompt_inpaint=prompt_inpaint, save_all=False)
+        
+
+            print(f"Saved inpainted image to {save_path}")
+    
+            if cfg.input.red_herring:
+                red_herring_class = random.choice(red_herring_classes)
+                red_herring_prompt = prompt_gen.get_prompt(red_herring_class)
+                logg.info(f"Adding red herring for class '{red_herring_class}' with prompt '{red_herring_prompt}'")
+                inpainted_image_red_herring, selected_mask_red_herring  = generator.inference(inpainted_image, img_name, prompt_seg=red_herring_class, prompt_inpaint=red_herring_prompt, save_all=False)
+
+                selected_mask = selected_mask.squeeze()
+                selected_mask_red_herring = selected_mask_red_herring.squeeze()
+                stacked_tensors = torch.stack([selected_mask, selected_mask_red_herring], dim=0)
+                overlay_mask_both = generator.overlay_mask(inpainted_image_red_herring, stacked_tensors)
+                
+                len_red_herring_prompt_toshow = min(60, len(red_herring_prompt))
+                save_path = os.path.join(cfg.input.project_path, cfg.output.red_herring_results, f"{img_name.split('.')[0]}_{prompt_seg}_{red_herring_class}_{red_herring_prompt[:len_red_herring_prompt_toshow]}.png")
+                generator.save_inpainted_and_mask(inpainted_image_red_herring, overlay_mask_both, save_path=save_path)
+                logg.info(f"Saved red herring overlay to {save_path}")
+
 
 
 

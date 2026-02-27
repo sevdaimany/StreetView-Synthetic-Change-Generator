@@ -505,13 +505,8 @@ class DatasetGenerator:
     
         return torch.from_numpy(final_mask).to(self.device)
 
-    def inference(self, image_name, prompt_seg, prompt_inpaint, seg_mask=None, negative_prompt_inpaint=None, save_all=False):
+    def inference(self, img, image_name, prompt_seg, prompt_inpaint, seg_mask=None, negative_prompt_inpaint=None, save_all=False):
         
-        image_path = os.path.join(self.cfg.input.project_path, self.cfg.input.image_folder, image_name)
-        img = Image.open(image_path).convert("RGB")
-        if 'panorama' in image_name.lower():
-            img = img.resize((self.cfg.input.resize_width, self.cfg.input.resize_height), Image.BILINEAR)
-
         # Segmentation and Mask Generation
         if seg_mask is not None:
             print("Using provided segmentation mask.")
@@ -556,17 +551,17 @@ class DatasetGenerator:
                         control_images=control_images)
 
         # Save inpainting results
-        overlay = self.overlay_mask(img, selected_mask)
-        inpainted_name = self.inpaint_output_name(self.cfg, image_name, mask_index, prompt_seg, prompt_inpaint, negative_prompt_inpaint)
+        if save_all:
+            overlay = self.overlay_mask(img, selected_mask)
+            inpainted_name = self.inpaint_output_name(self.cfg, image_name, mask_index, prompt_seg, prompt_inpaint, negative_prompt_inpaint)
 
-        save_path = os.path.join(self.cfg.input.project_path, self.cfg.output.inpainting_results, inpainted_name)
-        self.save_inpainted_and_mask(inpainted_image, overlay, save_path=save_path)
-        print(f"Saved inpainted image with mask overlay to {save_path}")
-        
-        save_path = os.path.join(self.cfg.input.project_path, self.cfg.output.inpaited_only_results, inpainted_name)
-        inpainted_image.save(save_path)
+            save_path = os.path.join(self.cfg.input.project_path, self.cfg.output.inpainting_results, inpainted_name)
+            self.save_inpainted_and_mask(inpainted_image, overlay, save_path=save_path)
+            
+            save_path = os.path.join(self.cfg.input.project_path, self.cfg.output.inpaited_only_results, inpainted_name)
+            inpainted_image.save(save_path)
 
-        print(f"Saved inpainted image to {save_path}")
+            print(f"Saved inpainted image to {save_path}")
 
         # testing segmentation on inpainted image
         # after_mask = self.segment(inpainted_image, prompt_seg)
@@ -574,6 +569,7 @@ class DatasetGenerator:
         # inpainted_image.save(os.path.join(self.cfg.input.project_path, self.cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}index{mask_index}_inpainted_{prompt_seg}_{self.cfg.model.segmentation.split('/')[-1]}.png"))
         # overlay.save(os.path.join(self.cfg.input.project_path, self.cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}index{mask_index}_inpainted_{prompt_seg}_{self.cfg.model.segmentation.split('/')[-1]}.png"))
 
+        return inpainted_image, selected_mask
 
     def inpaint_output_name(self, cfg, image_name, mask_index, prompt_seg, prompt_inpaint, negative_prompt_inpaint=None):
         model = ""
