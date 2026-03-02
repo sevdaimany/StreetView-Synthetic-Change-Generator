@@ -29,6 +29,7 @@ def create_output_dirs(cfg):
     os.makedirs(os.path.join(cfg.input.project_path, cfg.output.augmentation), exist_ok=True)
     os.makedirs(os.path.join(cfg.input.project_path, cfg.output.augmentation_masks), exist_ok=True)
     os.makedirs(os.path.join(cfg.input.project_path, cfg.output.correspondence_visualization), exist_ok=True)
+    os.makedirs(os.path.join(cfg.input.project_path, cfg.output.production_ready), exist_ok=True)
 
 def log_config(cfg):
     logg.info(f"Configuration:\n{OmegaConf.to_yaml(cfg)}")
@@ -40,7 +41,7 @@ def log_config(cfg):
         logg.info("Using Stable Diffusion + ControlNet for inpainting")
 
 
-def load_image(image_name, cfg):
+def load_image_test(image_name, cfg):
     image_path = os.path.join(cfg.input.project_path, cfg.input.image_folder, image_name)
     img = Image.open(image_path).convert("RGB")
     if 'panorama' in image_name.lower():
@@ -129,7 +130,7 @@ def augmentation_withtwoimages(cfg: DictConfig):
 
 
 @hydra.main(config_path=".", config_name="config")
-def main(cfg: DictConfig):
+def test_per_model(cfg: DictConfig):
     """ 
     For evaluating different prompts and models on a single segmentation class.
     """
@@ -153,7 +154,7 @@ def main(cfg: DictConfig):
     if run_mode == "pairwise":
         assert len(image_names) == len(prompts), "For pairwise mode, the number of images and prompts must be equal."
         for img_name, prompt, neg_prompt in zip(image_names, prompts, neg_prompts):
-            img = load_image(img_name, cfg)
+            img = load_image_test(img_name, cfg)
             generator.inference(img, img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt)
 
     elif run_mode == "combinatorial":
@@ -163,7 +164,7 @@ def main(cfg: DictConfig):
             if len(prompts) == len(neg_prompts):
                 for prompt, neg_prompt in zip(prompts, neg_prompts):
                     logg.info(f"--- Processing: {img_name} | Prompt: '{prompt}' | Negative Prompt: '{neg_prompt}' ---")
-                    img = load_image(img_name, cfg)
+                    img = load_image_test(img_name, cfg)
                     generator.inference(img, img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt)
             
             # Scenario B: Lengths differ (or one is length 1) -> Iterate on BOTH (all combinations)
@@ -171,14 +172,14 @@ def main(cfg: DictConfig):
                 for prompt in prompts:
                     for neg_prompt in neg_prompts:
                         logg.info(f"--- Processing: {img_name} | Prompt: '{prompt}' | Negative Prompt: '{neg_prompt}' ---")
-                        img = load_image(img_name, cfg)
+                        img = load_image_test(img_name, cfg)
                         generator.inference(img, img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt)   
     else:
         logg.error(f"Unknown run_mode: {run_mode}")
 
   
 @hydra.main(config_path=".", config_name="config")
-def automated_run(cfg: DictConfig):
+def run_red_herring(cfg: DictConfig):
     log_config(cfg)
     create_output_dirs(cfg)
     generator = DatasetGenerator(cfg)
@@ -191,7 +192,7 @@ def automated_run(cfg: DictConfig):
 
     for img_name in os.listdir(os.path.join(cfg.input.project_path, cfg.input.image_folder)):
 
-        img = load_image(img_name, cfg)
+        img = load_image_test(img_name, cfg)
 
         for class_name in classes:
             print(" --------------------------------------------------------- ")
@@ -244,12 +245,171 @@ def automated_run(cfg: DictConfig):
 
 
 
+def load_image(image_path, cfg):
+    img = Image.open(image_path).convert("RGB")
+    img = img.resize((cfg.input.resize_width, cfg.input.resize_height), Image.Resampling.LANCZOS)
+    return img
+    
+
+def process_and_save_synthetic_change(
+    generator, 
+    cfg, 
+    sequence_id, 
+    img1, 
+    img2, 
+    img_name1, 
+    img_name2, 
+    selected_instances, 
+    prompt_seg, 
+    prompt_inpaint):
+    """
+    Extracts masks, runs the inpainting generator, creates visual overlays, 
+    and saves the complete before/after pipeline to disk.
+    """
+    # 1. EXTRACT AND MERGE BOTH 'BEFORE' AND 'AFTER' MASKS
+    H, W = selected_instances[0]["after_mask"].shape
+    merged_after = np.zeros((H, W), dtype=bool)
+    merged_before = np.zeros((H, W), dtype=bool)
+    
+    for instance in selected_instances:
+        current_after = np.array(instance["after_mask"]) > 0
+        merged_after = np.logical_or(merged_after, current_after)
+        
+        current_before = np.array(instance["before_mask"]) > 0
+        merged_before = np.logical_or(merged_before, current_before)
+    
+    mask_after_np = (merged_after * 255).astype(np.uint8)
+    mask_before_np = (merged_before * 255).astype(np.uint8)
+    
+    mask_after_pil = Image.fromarray(mask_after_np, mode="L")
+    mask_before_pil = Image.fromarray(mask_before_np, mode="L")
+
+    # 2. PASS TO INPAINTING
+    inpainted_image, _ = generator.inference(
+        img=img2, 
+        image_name=img_name2, 
+        prompt_seg=prompt_seg, 
+        prompt_inpaint=prompt_inpaint,
+        seg_mask=mask_after_pil, 
+        save_all=False 
+    )
+
+    # 3. GENERATE OVERLAYS
+    overlay_img1 = generator.overlay_mask(img1, mask_before_np)
+    overlay_img2 = generator.overlay_mask(img2, mask_after_np)
+    overlay_inpainted = generator.overlay_mask(inpainted_image, mask_after_np)
+
+    # 4. SAVE EVERYTHING NEATLY
+    save_dir = os.path.join(cfg.input.project_path, cfg.output.production_ready, sequence_id)
+    os.makedirs(save_dir, exist_ok=True)
+    
+    safe_class = prompt_seg.replace(" ", "")
+    base_name = f"{img_name1.split('.')[0]}_to_{img_name2.split('.')[0]}_{safe_class}"
+    
+    img1.save(os.path.join(save_dir, f"{img_name1}.png"))
+    mask_before_pil.save(os.path.join(save_dir, f"{base_name}_2_mask_img1.png"))
+    overlay_img1.save(os.path.join(save_dir, f"{base_name}_3_overlay_img1.png"))
+    
+    img2.save(os.path.join(save_dir, f"{img_name2}.png"))
+    mask_after_pil.save(os.path.join(save_dir, f"{base_name}_5_mask_img2.png"))
+    overlay_img2.save(os.path.join(save_dir, f"{base_name}_6_overlay_img2.png"))
+    
+    inpainted_image.save(os.path.join(save_dir, f"{base_name}_7_final_inpainted.png"))
+    overlay_inpainted.save(os.path.join(save_dir, f"{base_name}_8_overlay_inpainted.png"))
+    
+    print(f"[{sequence_id}] Saved complete set of 8 images for {prompt_seg} to {save_dir}")
 
 
+@hydra.main(config_path=".", config_name="config")
+def run(cfg: DictConfig):
+    log_config(cfg)
+    create_output_dirs(cfg)
+    
+    generator = DatasetGenerator(cfg)
+    sam_pipeline = SAM3CorrespondencePipeline(device="cuda")
+    class_to_prompt = cfg.input.get("prompts_seg", {})   
+    classes = list(class_to_prompt.keys())    
+    print(f"Classes to process: {classes}")
+    print(f"Class to prompt mapping: {class_to_prompt}")
+
+    sequence_base_path = os.path.join(cfg.input.project_path, cfg.input.image_folder)
+    selection_mode = cfg.input.get("mask_selection_mode", "single") 
+    
+    for sequence_id in os.listdir(sequence_base_path):
+        sequence_path = os.path.join(sequence_base_path, sequence_id)
+        if not os.path.isdir(sequence_path):
+            continue
+
+        valid_extensions = ('.png', '.jpg', '.jpeg')
+        image_files = sorted([f for f in os.listdir(sequence_path) if f.lower().endswith(valid_extensions)])
+
+        # Iterate through consecutive pairs (image 1 -> image 2)
+        for i in range(len(image_files) - 1):
+            img_name1, img_name2 = image_files[i], image_files[i+1]
+            img1 = load_image(os.path.join(sequence_path, img_name1), cfg)
+            img2 = load_image(os.path.join(sequence_path, img_name2), cfg)
+            
+            # Load images into SAM
+            sam_pipeline.load_image_pair(img1, img2)
+            
+            for class_name in classes:
+                print(" --------------------------------------------------------- ")
+                
+                # Setup the prompts
+                prompt_seg = class_name
+                prompt = class_to_prompt[class_name]
+                prompt_inpaint = prompt
+                
+                print(f"[{sequence_id}] Processing '{prompt_seg}' with inpaint prompt: '{prompt_inpaint}'")
+
+                # Track the class
+                matches = sam_pipeline.track_class(prompt_seg)
+                
+                if len(matches) == 0:
+                    print(f"No {prompt_seg} matches found. Skipping.")
+                    continue
+
+                save_path = os.path.join(cfg.input.project_path, cfg.output.correspondence_visualization, f"{prompt_seg}_{img_name1.split('.')[0]}_{img_name2.split('.')[0]}.png")
+                sam_pipeline.visualize_correspondence(img1, img2, matches, save_path=save_path)
+                print(f"Found {len(matches)} {prompt_seg} matches between {img_name1} and {img_name2}.")
+
+                # ---------------------------------------------------------
+                # 3. RANDOM INSTANCE SELECTION
+                # ---------------------------------------------------------
+                if selection_mode == "single":
+                    num_to_select = 1
+                elif selection_mode == "subset":
+                    num_to_select = random.randint(1, len(matches))
+                else: # "all"
+                    num_to_select = len(matches)
+                    
+                selected_instances = random.sample(matches, k=num_to_select)
+                selected_ids = [inst["instance_id"] for inst in selected_instances]
+                print(f"Selected {prompt_seg} Instance IDs: {selected_ids}")
+
+                # 2. Inpaint and save
+                process_and_save_synthetic_change(
+                    generator=generator,
+                    cfg=cfg,
+                    sequence_id=sequence_id,
+                    img1=img1,
+                    img2=img2,
+                    img_name1=img_name1,
+                    img_name2=img_name2,
+                    selected_instances=selected_instances,
+                    prompt_seg=prompt_seg,
+                    prompt_inpaint=prompt_inpaint
+                )
+
+            # Clear memory before moving to the next pair
+            sam_pipeline.clear_current_pair()
+            
+    sam_pipeline.shutdown()
 
 
 if __name__ == "__main__":
-    # main()
+    # test_per_model()
     # augmentation_withoneimage()
     # augmentation_withtwoimages()
-    automated_run()
+    # run_red_herring()
+    run()

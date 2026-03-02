@@ -334,7 +334,13 @@ class DatasetGenerator:
 
     def dilate_mask(self, mask, radius=8):
         """Often improves seams: dilate mask a bit so model repaints edges cleanly."""
-        m = np.array(mask.cpu().numpy().astype(np.uint8) * 255)
+        if isinstance(mask, torch.Tensor):
+            # Convert tensor to numpy and scale to 0-255
+            m = (mask.cpu().numpy() * 255).astype(np.uint8)
+        else:
+            # Assume it's already a numpy array
+            m = np.array(mask).astype(np.uint8)
+
         k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (radius, radius))
         m = cv2.dilate(m, k, iterations=1)
         return Image.fromarray(m, mode="L")
@@ -510,7 +516,7 @@ class DatasetGenerator:
         # Segmentation and Mask Generation
         if seg_mask is not None:
             print("Using provided segmentation mask.")
-            mask = seg_mask
+            selected_mask = seg_mask
         else:
             mask = self.segment(img, prompt_seg)
             if mask.shape[0] == 0:
@@ -523,24 +529,19 @@ class DatasetGenerator:
                 overlay.save(seg_save_path)
                 print(f"Saved segmentation overlay to {seg_save_path}")
 
-        # Filter masks near borders and select one for inpainting
-        filtered_mask = mask
-        # filtered_mask = self.filter_masks(mask)
-        mask_index = self.cfg.input.mask_index
-        if mask_index == -1:
-            mask_index = random.randint(0, filtered_mask.shape[0] - 1)
-        if mask_index == -2:
-            mask_index = self.select_largest_mask(filtered_mask)
-        print(f"Selected mask index: {mask_index}")
-        selected_mask = filtered_mask[mask_index]
+            # Filter masks near borders and select one for inpainting
+            filtered_mask = mask
+            # filtered_mask = self.filter_masks(mask)
+            mask_index = self.cfg.input.mask_index
+            if mask_index == -1:
+                mask_index = random.randint(0, filtered_mask.shape[0] - 1)
+            if mask_index == -2:
+                mask_index = self.select_largest_mask(filtered_mask)
+            print(f"Selected mask index: {mask_index}")
+            selected_mask = filtered_mask[mask_index]
 
-        if self.cfg.input.add_pothole and prompt_seg == "roads":
-            print("Adding pothole to the mask...")
-            selected_mask = self.get_pothole_sub_mask(selected_mask, img.size)
-        
-        
-        if self.cfg.input.dilated_mask:
-            selected_mask = self.dilate_mask(selected_mask, radius=15)
+
+        selected_mask = self.dilate_mask(selected_mask, radius=15)
 
         # generate control images using edge detection and depth estimation for controlnet conditioning
         control_images = self.generate_control_images(img, selected_mask, image_name, save=save_all)
@@ -562,12 +563,6 @@ class DatasetGenerator:
             inpainted_image.save(save_path)
 
             print(f"Saved inpainted image to {save_path}")
-
-        # testing segmentation on inpainted image
-        # after_mask = self.segment(inpainted_image, prompt_seg)
-        # overlay = self.overlay_mask(inpainted_image, after_mask)
-        # inpainted_image.save(os.path.join(self.cfg.input.project_path, self.cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}index{mask_index}_inpainted_{prompt_seg}_{self.cfg.model.segmentation.split('/')[-1]}.png"))
-        # overlay.save(os.path.join(self.cfg.input.project_path, self.cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}index{mask_index}_inpainted_{prompt_seg}_{self.cfg.model.segmentation.split('/')[-1]}.png"))
 
         return inpainted_image, selected_mask
 
