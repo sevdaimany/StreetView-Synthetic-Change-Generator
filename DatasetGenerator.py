@@ -515,7 +515,7 @@ class DatasetGenerator:
             mask = self.segment(img, prompt_seg)
             if mask.shape[0] == 0:
                 print(f"No valid masks found for prompt '{prompt_seg}' in image '{image_name}'. Skipping inpainting.")
-                return
+                return img, None
             print(f"Generated mask shape: {mask.shape}")
             if save_all:
                 overlay = self.overlay_mask(img, mask)

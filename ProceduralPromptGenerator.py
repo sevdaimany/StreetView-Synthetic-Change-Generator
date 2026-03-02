@@ -4,11 +4,6 @@ class ProceduralPromptGenerator:
     def __init__(self):
         self.base_positive = "photorealistic, highly detailed, 8k resolution, seamless integration, natural lighting, matching the surrounding urban context"
 
-        # 1. Vegetation & Trees for sidewalks
-        self.tree_sizes = ["A tall, mature", "A small, decorative", "A thick, overgrown", "A young sapling", "A massive, ancient"]
-        self.tree_types = ["oak tree", "maple tree", "birch tree", "pine tree", "weeping willow", "cherry blossom tree", "ivy vine"]
-        self.tree_foliage = ["with lush green summer foliage", "with vibrant orange and red autumn leaves", "with sparse, bare winter branches", "with dense, creeping leaves", "with bright spring blossoms"]
-        
         # 2. Doors
         self.door_conditions = ["pristine", "weathered", "peeling painted", "rusty", "heavy-duty", "elegant"]
         self.door_materials = ["solid oak", "corrugated metal", "frosted glass", "black aluminum", "cherry-red wooden", "dark iron"]
@@ -40,13 +35,10 @@ class ProceduralPromptGenerator:
         """Returns a tuple of (positive_prompt, negative_prompt) based on the category."""
         category = category.lower()
         
-        if category in ["sidewalks"]:
-            pos = self._build_prompt([self.tree_sizes, self.tree_types, self.tree_foliage])
-        
-        elif category == "doors":
+        if category == "building doors":
             pos = self._build_prompt([["A"], self.door_conditions, self.door_materials, self.door_styles, ["door"]])
             
-        elif category == "windows":
+        elif category == "building windows":
             pos = self._build_prompt([["A set of"], self.window_styles, ["windows with"], self.window_frames, ["and"], self.window_details])
             
         elif category in ["walls", "facade"]:

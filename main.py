@@ -10,8 +10,8 @@ from DatasetGenerator import DatasetGenerator
 from dotenv import load_dotenv
 from huggingface_hub import login
 from omegaconf import OmegaConf, DictConfig
-# from Panorama import Panorama
-# from SAM3Correspondence import SAM3CorrespondencePipeline
+from Panorama import Panorama
+from SAM3Correspondence import SAM3CorrespondencePipeline
 from ProceduralPromptGenerator import ProceduralPromptGenerator
 load_dotenv()
 login(os.getenv("HF_TOKEN"))
@@ -194,6 +194,8 @@ def automated_run(cfg: DictConfig):
         img = load_image(img_name, cfg)
 
         for class_name in classes:
+            print(" --------------------------------------------------------- ")
+
             prompt_seg = class_name
             prompt = class_to_prompt[class_name]
 
@@ -204,20 +206,36 @@ def automated_run(cfg: DictConfig):
             logg.info(f"Processing {img_name} for class '{prompt_seg}' with prompt '{prompt_inpaint}'")
             
             inpainted_image, selected_mask = generator.inference(img, img_name, prompt_seg=prompt_seg, prompt_inpaint=prompt_inpaint, save_all=False)
-        
 
-            print(f"Saved inpainted image to {save_path}")
-    
             if cfg.input.red_herring:
                 red_herring_class = random.choice(red_herring_classes)
                 red_herring_prompt = prompt_gen.get_prompt(red_herring_class)
                 logg.info(f"Adding red herring for class '{red_herring_class}' with prompt '{red_herring_prompt}'")
                 inpainted_image_red_herring, selected_mask_red_herring  = generator.inference(inpainted_image, img_name, prompt_seg=red_herring_class, prompt_inpaint=red_herring_prompt, save_all=False)
+                
 
-                selected_mask = selected_mask.squeeze()
-                selected_mask_red_herring = selected_mask_red_herring.squeeze()
-                stacked_tensors = torch.stack([selected_mask, selected_mask_red_herring], dim=0)
-                overlay_mask_both = generator.overlay_mask(inpainted_image_red_herring, stacked_tensors)
+
+                if  selected_mask_red_herring is None:
+                    # should save the inpainted and mask for no change samples, but skipping for now
+                    logg.warning(f"Skipping red herring overlay for {img_name} due to missing masks.")
+                    continue
+
+                if selected_mask:
+                    selected_mask = np.array(selected_mask)
+                    selected_mask_red_herring = np.array(selected_mask_red_herring)
+                    selected_mask = np.squeeze(selected_mask)
+                    selected_mask_red_herring = np.squeeze(selected_mask_red_herring)
+                    if selected_mask.shape != selected_mask_red_herring.shape:
+                        selected_mask_red_herring = cv2.resize(
+                            selected_mask_red_herring,
+                            (selected_mask.shape[1], selected_mask.shape[0]),
+                            interpolation=cv2.INTER_NEAREST 
+                        )
+                    stacked_tensors = np.stack([selected_mask, selected_mask_red_herring], axis=0)
+
+                else: 
+                    stacked_tensors = selected_mask_red_herring
+                overlay_mask_both = generator.overlay_mask(img, stacked_tensors)
                 
                 len_red_herring_prompt_toshow = min(60, len(red_herring_prompt))
                 save_path = os.path.join(cfg.input.project_path, cfg.output.red_herring_results, f"{img_name.split('.')[0]}_{prompt_seg}_{red_herring_class}_{red_herring_prompt[:len_red_herring_prompt_toshow]}.png")
