@@ -29,7 +29,6 @@ class SAM3CorrespondencePipeline:
             request=dict(type="start_session", resource_path=self.temp_dir)
         )
         self.current_session_id = response["session_id"]
-        print("Image pair loaded into SAM 3 memory.")
 
     def track_class(self, class_name):
         """

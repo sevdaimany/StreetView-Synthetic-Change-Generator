@@ -1,73 +1,126 @@
 device: "cuda"
+# device: "cuda:0"
 
 model:
   segmentation: "facebook/sam3"
   depth_estimation: "Intel/dpt-hybrid-midas"
 
-  inpainting: "black-forest-labs/FLUX.1-Fill-dev"
-  # controlnet_union: "InstantX/FLUX.1-dev-Controlnet-Union" 
-
+  # inpainting: "black-forest-labs/FLUX.1-Fill-dev"
   # controlnet_depth: "black-forest-labs/FLUX.1-Depth-dev"
   # controlnet_canny: "black-forest-labs/FLUX.1-Canny-dev"
-
-
+  # controlnet_union: "InstantX/FLUX.1-dev-Controlnet-Union" 
 
   # inpainting: "stable-diffusion-v1-5/stable-diffusion-inpainting"
   # controlnet: "lllyasviel/control_v11p_sd15_inpaint"
   # controlnet_depth: "lllyasviel/sd-controlnet-depth"
   # controlnet_canny: "lllyasviel/sd-controlnet-canny"
 
-  # inpainting: "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"  
+  inpainting: "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"  
+  vae: "madebyollin/sdxl-vae-fp16-fix"
   # controlnet_depth: "diffusers/controlnet-depth-sdxl-1.0"
   # controlnet_canny: "diffusers/controlnet-canny-sdxl-1.0"
-  # vae: "madebyollin/sdxl-vae-fp16-fix"
 
 input:
   project_path: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator"
+  # project_path: "/home/SImany/data_generation_pipeline"
+  font_path: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+
   image_folder: "images/"
-
-  # "combinatorial" = test every prompt on every image
-  # "pairwise" = pair image 1 with prompt 1, image 2 with prompt 2, etc.
-  run_mode: "combinatorial"
-
-  image_names: 
-    - "5.jpg"
-    - "3.jpg"
-    - "6.jpg"
-    - "8.jpg"
-  
+  # resize_width: 1024
   resize_width: 1024
-  resize_height: 512
-  prompt_seg: "buildings"
-  mask_index: 0 # which instance of the prompt_seg class to mask (e.g. if there are multiple buildings, which one to select), -1 for random
-
-  prompts_inpaint: 
-    # - "photorealistic street view, realistic urban scene, "
-    - remove the building and fill the region with plausible background continuation "
-    - "(sky, trees) matching the surrounding context"
-    - "empty field"
-    - "park"
-    - "matching the surrounding context"
-    - ""
+  resize_height: 1024
+  mask_index: -2 # which instance of the prompt_seg class to mask, -1 for random, -2 for largest
+  mask_selection_mode: "biggest" # "single", "subset" , "biggest", "all"
   
-  negative_prompts_inpaint: 
-    - "cartoon, painting, warped geometry, blurry"
-    - ""
+  dilated_mask: true # whether to dilate the mask to include some context around the segmented object
+  red_herring: True # whether to add red herrings, should be removed and randomly added in pipeline
+  add_pothole: true
 
   canny: false
   depth: false
   inpaint: false # only for stable diffusion inpainting
+  
+  # "combinatorial" = test every prompt on every image
+  # "pairwise" = pair image 1 with prompt 1, image 2 with prompt 2, etc.
+  run_mode: "combinatorial"
+  
+  image_name: "panorama1.jpg"
+  image_names: 
+    - "3.jpg"
+    - "5.jpg"
+    - "6.jpg"
+    # - "8.jpg"
+    - "panorama1.jpg"
+    - "panorama2.jpg"
+    - "panorama3.jpg"
+    - "panorama4.jpg"
+    - "panorama5.jpg"
+    - "panorama6.jpg"
+    
+    - "4.jpg"
+    - "2.jpg"
+    - "7.jpg"
 
+  prompt_seg: "roads" # cracks, buildings, traffic signs, roads, building under reconstruction
+  prompts_seg:
+    buildings: "(sky, trees) matching the surrounding context"
+    traffic signs: ""
+    cracks: ""
+    buildings under reconstruction: "completed building" 
+    # roads:
+    #   - "urban road after heavy rain, large pothole filled with water, reflective puddle inside a damaged cavity, cracked and eroded asphalt edges, wet surface, realistic lighting, detailed texture photography"
+    #   - "a deep pothole in an asphalt road filled with muddy rainwater, strong shadow gradient, reflective water with sky reflection, broken crumbling asphalt edges, realistic road damage, high resolution"
+  
+
+  red_herring_classes: 
+    - "walls"
+    - "building doors"
+    - "building windows"
+  
+
+  prompts_inpaint: 
+    # - "photorealistic street view, realistic urban scene, "
+    # - remove and fill the region with plausible background continuation "
+    # - "empty field"
+    # - "The facade is dismantled. Scaffolding surrounds the building, protective safety netting installed."
+    # - "building wrapped in scaffolding"
+    # - "building under reconstruction"
+    # - "(sky, trees) matching the surrounding context"
+    # - ""
+    # - "sky"
+    # - "background"
+    # - "disappear"
+    - "a deep pothole in an asphalt road filled with muddy rainwater, strong shadow gradient, reflective water with sky reflection, broken crumbling asphalt edges, realistic road damage, high resolution"
+    - "urban road after heavy rain, large pothole filled with water, reflective puddle inside a damaged cavity, cracked and eroded asphalt edges, wet surface, realistic lighting, detailed texture photography"
+  
+  negative_prompts_inpaint:  # Flux doesnt get negative prompts
+    # - "cartoon, painting, warped geometry, blurry"
+    # - "building"
+    - ""
+
+
+augmentation:
+  depth_estimation : "Intel/zoedepth-nyu-kitti"
+  yaw_deg: 10.0
+  translation_z: -5.0 # negative for forward movement, positive for backward movement
+  prompt_inpaint: "street scene"
+  refiner: false # true if you run one image augmentation
+  class_name: "buildings" # for SAM 3 instance correspondence
 
 output:
   segmentation_overlay: "results/segmentation_overlay/"
-  inpainting_results: "results/inpainting/"
+  inpainting_results: "results/inpainting_v2/"
   panorama_to_perspective: "results/panorama_to_perspective/"
   stitching_results: "results/stitching/"
   edge_detection_results: "results/edge_detection/"
   red_herring_results: "results/red_herring/"
   depth_results: "results/depth/"
-  inpaited_only_results: "results/inpainted_only/"
+  inpaited_only_results: "results/inpainted_only_v2/"
+  augmentation: "results/augmentation/"
+  augmentation_masks: "results/augmentation_masks/"
+  correspondence_visualization: "results/correspondence_visualization/"
+  production_ready: "results/production_ready/"
+
 
 
 hydra:
