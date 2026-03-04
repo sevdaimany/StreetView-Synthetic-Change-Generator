@@ -88,7 +88,7 @@ def process_and_save_synthetic_change(
 
     # 2. DEFINE DIRECTORY STRUCTURE
     # Separate 'raw' data for training and 'viz' for human checking
-    base_dir = os.path.join(cfg.input.project_path, cfg.output.production_ready)
+    base_dir = os.path.join(cfg.input.project_path, cfg.output.base, cfg.output.production_ready)
     viz_dir = os.path.join(base_dir, "visualizations")
     data_dir = os.path.join(base_dir, "data", sequence_id)
     
@@ -143,6 +143,45 @@ def process_and_save_synthetic_change(
                           labels=["Before overlay", "After overlay", "Inpainted"], font_path=cfg.input.font_path)
     grid.save(os.path.join(viz_dir, f"{pair_id}_QC.jpg"), quality=85) # JPG saves space for viz
 
+
+def filter_cracks_by_roads(target_matches, bg_matches):
+    """
+    Filters cracks instances to only keep the pixels that overlap 
+    with the road instances (background).
+    
+    Returns: A filtered list of matches where the target is strictly inside the background.
+    """
+    if not target_matches or not bg_matches:
+        return [] 
+
+    # 1. Create a global boolean mask for the background class
+    H, W = np.array(target_matches[0]["before_mask"]).shape
+    global_bg_before = np.zeros((H, W), dtype=bool)
+    global_bg_after = np.zeros((H, W), dtype=bool)
+    
+    for bg_inst in bg_matches:
+        global_bg_before |= (np.array(bg_inst["before_mask"]) > 0)
+        global_bg_after |= (np.array(bg_inst["after_mask"]) > 0)
+
+    filtered_matches = []
+    
+    # 2. Apply the logical AND to every target instance
+    for match in target_matches:
+        target_b = np.array(match["before_mask"]) > 0
+        target_a = np.array(match["after_mask"]) > 0
+        
+        # The intersection (AND operation)
+        filtered_b = np.logical_and(target_b, global_bg_before)
+        filtered_a = np.logical_and(target_a, global_bg_after)
+        
+        # 3. Keep the instance only if some pixels survived the filter
+        if np.any(filtered_b) or np.any(filtered_a):
+            match["before_mask"] = (filtered_b * 255).astype(np.uint8)
+            match["after_mask"] = (filtered_a * 255).astype(np.uint8)
+            filtered_matches.append(match)
+            
+    return filtered_matches
+
 def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipeline, generator, cfg):
     sequence_path = os.path.join(base_path, sequence_id)
     valid_extensions = ('.png', '.jpg', '.jpeg')
@@ -174,6 +213,19 @@ def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipel
                 if len(matches) == 0:
                     logger.warning(f"No {prompt_seg} matches found. Skipping.")
                     continue
+                
+                # Apply the Road Filter if this is a crack class
+                if "cracks" in prompt_seg.lower():
+                    road_matches = sam_pipeline.track_class("road")
+                    if len(road_matches) == 0:
+                        logger.warning(f"No road found to filter {prompt_seg}. Skipping this pair.")
+                        continue
+                        
+                    matches = filter_cracks_by_roads(matches, road_matches)
+                    
+                    if len(matches) == 0:
+                        logger.warning(f"All {prompt_seg} matches were outside the road. Skipping.")
+                        continue
 
                 # save_path = os.path.join(cfg.input.project_path, cfg.output.correspondence_visualization, f"{prompt_seg}_{img_name1.split('.')[0]}_{img_name2.split('.')[0]}.png")
                 # sam_pipeline.visualize_correspondence(img1, img2, matches, save_path=save_path)

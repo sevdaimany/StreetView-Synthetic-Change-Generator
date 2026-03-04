@@ -108,7 +108,8 @@ augmentation:
   class_name: "buildings" # for SAM 3 instance correspondence
 
 output:
-  base: "/mnt/stores/store-DAI/pocs/simany/results_pipeline/"
+  # base: "/mnt/stores/store-DAI/pocs/simany/results_pipeline/"
+  base: "results/"
   segmentation_overlay: "segmentation_overlay/"
   inpainting_results: "inpainting_v2/"
   panorama_to_perspective: "panorama_to_perspective/"
