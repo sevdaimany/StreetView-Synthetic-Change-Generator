@@ -20,15 +20,17 @@ logg = logging.getLogger(__name__)
 
 def create_output_dirs(cfg):
     """Utility to create output directories if they don't exist."""
-    os.makedirs(os.path.join(cfg.input.project_path, cfg.output.segmentation_overlay), exist_ok=True)
-    os.makedirs(os.path.join(cfg.input.project_path, cfg.output.inpainting_results), exist_ok=True)
-    os.makedirs(os.path.join(cfg.input.project_path, cfg.output.edge_detection_results), exist_ok=True)
-    os.makedirs(os.path.join(cfg.input.project_path, cfg.output.red_herring_results), exist_ok=True)
-    os.makedirs(os.path.join(cfg.input.project_path, cfg.output.depth_results), exist_ok=True)
-    os.makedirs(os.path.join(cfg.input.project_path, cfg.output.inpaited_only_results), exist_ok=True)
-    os.makedirs(os.path.join(cfg.input.project_path, cfg.output.augmentation), exist_ok=True)
-    os.makedirs(os.path.join(cfg.input.project_path, cfg.output.augmentation_masks), exist_ok=True)
-    os.makedirs(os.path.join(cfg.input.project_path, cfg.output.correspondence_visualization), exist_ok=True)
+    os.makedirs(cfg.output.base, exist_ok=True)
+    os.makedirs(os.path.join(cfg.output.base, cfg.output.segmentation_overlay), exist_ok=True)
+    os.makedirs(os.path.join(cfg.output.base, cfg.output.inpainting_results), exist_ok=True)
+    os.makedirs(os.path.join(cfg.output.base, cfg.output.edge_detection_results), exist_ok=True)
+    os.makedirs(os.path.join(cfg.output.base, cfg.output.red_herring_results), exist_ok=True)
+    os.makedirs(os.path.join(cfg.output.base, cfg.output.depth_results), exist_ok=True)
+    os.makedirs(os.path.join(cfg.output.base, cfg.output.inpaited_only_results), exist_ok=True)
+    os.makedirs(os.path.join(cfg.output.base, cfg.output.augmentation), exist_ok=True)
+    os.makedirs(os.path.join(cfg.output.base, cfg.output.augmentation_masks), exist_ok=True)
+    os.makedirs(os.path.join(cfg.output.base, cfg.output.correspondence_visualization), exist_ok=True)
+    os.makedirs(os.path.join(cfg.output.base, cfg.output.production_ready), exist_ok=True)
 
 def log_config(cfg):
     logg.info(f"Configuration:\n{OmegaConf.to_yaml(cfg)}")
@@ -67,10 +69,10 @@ def augmentation_withoneimage(cfg: DictConfig):
     final_inpainted_img, final_sdxl_mask = generator.refine_novel_view(warped_img, valid_mask, cfg.augmentation.prompt_inpaint)
     
     base_name, _ = os.path.splitext(cfg.input.image_name)
-    save_path_mask = os.path.join(cfg.input.project_path, cfg.output.augmentation_masks, f"{base_name}_z{cfg.augmentation.translation_z}_deg{cfg.augmentation.yaw_deg}.png")
-    save_path = os.path.join(cfg.input.project_path, cfg.output.augmentation, f"{base_name}_z{cfg.augmentation.translation_z}_deg{cfg.augmentation.yaw_deg}.png")
+    save_path_mask = os.path.join(cfg.output.base, cfg.output.augmentation_masks, f"{base_name}_z{cfg.augmentation.translation_z}_deg{cfg.augmentation.yaw_deg}.png")
+    save_path = os.path.join(cfg.output.base, cfg.output.augmentation, f"{base_name}_z{cfg.augmentation.translation_z}_deg{cfg.augmentation.yaw_deg}.png")
     
-    warped_img.save(os.path.join(cfg.input.project_path, cfg.output.augmentation, f"beforeinpaint_{base_name}_z{cfg.augmentation.translation_z}_deg{cfg.augmentation.yaw_deg}.png"))
+    warped_img.save(os.path.join(cfg.output.base, cfg.output.augmentation, f"beforeinpaint_{base_name}_z{cfg.augmentation.translation_z}_deg{cfg.augmentation.yaw_deg}.png"))
     final_sdxl_mask.save(save_path_mask)
     final_inpainted_img.save(save_path)
     print(f"Saved augmented image to {save_path}")
@@ -99,19 +101,19 @@ def augmentation_withtwoimages(cfg: DictConfig):
     
     print(f"Found {len(building_matches)} buildings.")
     if len(building_matches) > 0:
-        save_path = os.path.join(cfg.input.project_path, cfg.output.correspondence_visualization, f"building_{image_1.split('.')[0]}_{image_2.split('.')[0]}.png")
+        save_path = os.path.join(cfg.output.base, cfg.output.correspondence_visualization, f"building_{image_1.split('.')[0]}_{image_2.split('.')[0]}.png")
         sam_pipeline.visualize_correspondence(resized_img_1, resized_img_2, building_matches, save_path=save_path)
 
     sign_matches = sam_pipeline.track_class("traffic signs")
     print(f"Found {len(sign_matches)} traffic signs.")
     if len(sign_matches) > 0:
-        save_path = os.path.join(cfg.input.project_path, cfg.output.correspondence_visualization, f"trafficsign_{image_1.split('.')[0]}_{image_2.split('.')[0]}.png")
+        save_path = os.path.join(cfg.output.base, cfg.output.correspondence_visualization, f"trafficsign_{image_1.split('.')[0]}_{image_2.split('.')[0]}.png")
         sam_pipeline.visualize_correspondence(resized_img_1, resized_img_2, sign_matches, save_path=save_path)
 
     road_matches = sam_pipeline.track_class("roads")
     print(f"Found {len(road_matches)} roads.")
     if len(road_matches) > 0:
-        save_path = os.path.join(cfg.input.project_path, cfg.output.correspondence_visualization, f"road_{image_1.split('.')[0]}_{image_2.split('.')[0]}.png")
+        save_path = os.path.join(cfg.output.base, cfg.output.correspondence_visualization, f"road_{image_1.split('.')[0]}_{image_2.split('.')[0]}.png")
         sam_pipeline.visualize_correspondence(resized_img_1, resized_img_2, road_matches, save_path=save_path)
 
     # 4. Clean up the images when you are ready to move to the next pair
@@ -238,7 +240,7 @@ def automated_run_folder(cfg: DictConfig):
                 overlay_mask_both = generator.overlay_mask(img, stacked_tensors)
                 
                 len_red_herring_prompt_toshow = min(60, len(red_herring_prompt))
-                save_path = os.path.join(cfg.input.project_path, cfg.output.red_herring_results, f"{img_name.split('.')[0]}_{prompt_seg}_{red_herring_class}_{red_herring_prompt[:len_red_herring_prompt_toshow]}.png")
+                save_path = os.path.join(cfg.output.base, cfg.output.red_herring_results, f"{img_name.split('.')[0]}_{prompt_seg}_{red_herring_class}_{red_herring_prompt[:len_red_herring_prompt_toshow]}.png")
                 generator.save_inpainted_and_mask(inpainted_image_red_herring, overlay_mask_both, save_path=save_path)
                 logg.info(f"Saved red herring overlay to {save_path}")
 
@@ -249,7 +251,7 @@ def automated_run_folder(cfg: DictConfig):
 
 
 if __name__ == "__main__":
-    # main()
+    main()
     # augmentation_withoneimage()
     # augmentation_withtwoimages()
     # automated_run_folder()
