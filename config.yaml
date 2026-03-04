@@ -109,7 +109,7 @@ augmentation:
 
 output:
   # base: "/mnt/stores/store-DAI/pocs/simany/results_pipeline/"
-  base: "results/"
+  base: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results/"
   segmentation_overlay: "segmentation_overlay/"
   inpainting_results: "inpainting_v2/"
   panorama_to_perspective: "panorama_to_perspective/"

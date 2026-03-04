@@ -254,13 +254,13 @@ class DatasetGenerator:
         if self.cfg.input.depth:
             control_image = self.make_depth_control(img)
             if save:
-                control_image.save(os.path.join(self.cfg.input.project_path, self.cfg.output.depth_results, f"{image_name.split('.')[0]}_depth.png"))
+                control_image.save(os.path.join(self.cfg.output.base, self.cfg.output.depth_results, f"{image_name.split('.')[0]}_depth.png"))
             control_images.append(control_image)
 
         if self.cfg.input.canny:
             control_image = self.make_canny_control(img)
             if save:
-                control_image.save(os.path.join(self.cfg.input.project_path, self.cfg.output.edge_detection_results, f"{image_name.split('.')[0]}_canny.png"))
+                control_image.save(os.path.join(self.cfg.output.base, self.cfg.output.edge_detection_results, f"{image_name.split('.')[0]}_canny.png"))
             control_images.append(control_image)
 
         if self.cfg.input.inpaint:
@@ -485,7 +485,7 @@ class DatasetGenerator:
             print(f"Generated mask shape: {mask.shape}")
             if save_all:
                 overlay = self.overlay_mask(img, mask)
-                seg_save_path = os.path.join(self.cfg.input.project_path, self.cfg.output.segmentation_overlay, f"{os.path.basename(image_name).split('.')[0]}_{prompt_seg}_{self.cfg.model.segmentation.split('/')[-1]}.png") 
+                seg_save_path = os.path.join(self.cfg.output.base, self.cfg.output.segmentation_overlay, f"{os.path.basename(image_name).split('.')[0]}_{prompt_seg}_{self.cfg.model.segmentation.split('/')[-1]}.png") 
                 overlay.save(seg_save_path)
                 print(f"Saved segmentation overlay to {seg_save_path}")
 
@@ -516,10 +516,10 @@ class DatasetGenerator:
             overlay = self.overlay_mask(img, selected_mask)
             inpainted_name = self.inpaint_output_name(self.cfg, image_name, mask_index, prompt_seg, prompt_inpaint, negative_prompt_inpaint)
 
-            save_path = os.path.join(self.cfg.input.project_path, self.cfg.output.inpainting_results, inpainted_name)
+            save_path = os.path.join(self.cfg.output.base, self.cfg.output.inpainting_results, inpainted_name)
             self.save_inpainted_and_mask(inpainted_image, overlay, save_path=save_path)
             
-            save_path = os.path.join(self.cfg.input.project_path, self.cfg.output.inpaited_only_results, inpainted_name)
+            save_path = os.path.join(self.cfg.output.base, self.cfg.output.inpaited_only_results, inpainted_name)
             inpainted_image.save(save_path)
 
             print(f"Saved inpainted image to {save_path}")

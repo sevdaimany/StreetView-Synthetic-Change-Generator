@@ -88,7 +88,7 @@ def process_and_save_synthetic_change(
 
     # 2. DEFINE DIRECTORY STRUCTURE
     # Separate 'raw' data for training and 'viz' for human checking
-    base_dir = os.path.join(cfg.input.project_path, cfg.output.base, cfg.output.production_ready)
+    base_dir = os.path.join(cfg.output.base, cfg.output.production_ready)
     viz_dir = os.path.join(base_dir, "visualizations")
     data_dir = os.path.join(base_dir, "data", sequence_id)
     
@@ -227,7 +227,7 @@ def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipel
                         logger.warning(f"All {prompt_seg} matches were outside the road. Skipping.")
                         continue
 
-                # save_path = os.path.join(cfg.input.project_path, cfg.output.correspondence_visualization, f"{prompt_seg}_{img_name1.split('.')[0]}_{img_name2.split('.')[0]}.png")
+                # save_path = os.path.join(cfg.output.base, cfg.output.correspondence_visualization, f"{prompt_seg}_{img_name1.split('.')[0]}_{img_name2.split('.')[0]}.png")
                 # sam_pipeline.visualize_correspondence(img1, img2, matches, save_path=save_path)
 
                 # Selection logic...

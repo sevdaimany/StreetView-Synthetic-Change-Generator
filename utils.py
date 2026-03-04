@@ -109,7 +109,7 @@ def save_voc_bboxes_and_overlay(image_pil, instances, mask_key, class_name, txt_
     overlay_img.save(overlay_path, quality=90)
 
 def check_redundancy(sequence_id, class_name, img_name1, img_name2, cfg):
-    base_dir = os.path.join(cfg.input.project_path, cfg.output.production_ready, "data", sequence_id)
+    base_dir = os.path.join(cfg.output.base, cfg.output.production_ready, "data", sequence_id)
     safe_class = class_name.replace(" ", "_")
     pair_id = f"{img_name1.split('.')[0]}_to_{img_name2.split('.')[0]}_{safe_class}"
     check_path = os.path.join(base_dir, f"{pair_id}_meta.json")
