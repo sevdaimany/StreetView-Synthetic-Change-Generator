@@ -108,18 +108,19 @@ augmentation:
   class_name: "buildings" # for SAM 3 instance correspondence
 
 output:
-  segmentation_overlay: "results/segmentation_overlay/"
-  inpainting_results: "results/inpainting_v2/"
-  panorama_to_perspective: "results/panorama_to_perspective/"
-  stitching_results: "results/stitching/"
-  edge_detection_results: "results/edge_detection/"
-  red_herring_results: "results/red_herring/"
-  depth_results: "results/depth/"
-  inpaited_only_results: "results/inpainted_only_v2/"
-  augmentation: "results/augmentation/"
-  augmentation_masks: "results/augmentation_masks/"
-  correspondence_visualization: "results/correspondence_visualization/"
-  production_ready: "results/production_ready/"
+  base: "/mnt/stores/store-DAI/pocs/simany/results_pipeline/"
+  segmentation_overlay: "segmentation_overlay/"
+  inpainting_results: "inpainting_v2/"
+  panorama_to_perspective: "panorama_to_perspective/"
+  stitching_results: "stitching/"
+  edge_detection_results: "edge_detection/"
+  red_herring_results: "red_herring/"
+  depth_results: "depth/"
+  inpaited_only_results: "inpainted_only_v2/"
+  augmentation: "augmentation/"
+  augmentation_masks: "augmentation_masks/"
+  correspondence_visualization: "correspondence_visualization/"
+  production_ready: "production_ready/"
 
 
 
