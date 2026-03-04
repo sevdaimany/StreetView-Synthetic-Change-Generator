@@ -154,7 +154,7 @@ def main(cfg: DictConfig):
         assert len(image_names) == len(prompts), "For pairwise mode, the number of images and prompts must be equal."
         for img_name, prompt, neg_prompt in zip(image_names, prompts, neg_prompts):
             img = load_image(img_name, cfg)
-            generator.inference(img, img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt)
+            generator.inference(img, img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt, save_all=True)
 
     elif run_mode == "combinatorial":
         for img_name in image_names:
@@ -164,7 +164,7 @@ def main(cfg: DictConfig):
                 for prompt, neg_prompt in zip(prompts, neg_prompts):
                     logg.info(f"--- Processing: {img_name} | Prompt: '{prompt}' | Negative Prompt: '{neg_prompt}' ---")
                     img = load_image(img_name, cfg)
-                    generator.inference(img, img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt)
+                    generator.inference(img, img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt, save_all=True)
             
             # Scenario B: Lengths differ (or one is length 1) -> Iterate on BOTH (all combinations)
             else:
@@ -172,13 +172,13 @@ def main(cfg: DictConfig):
                     for neg_prompt in neg_prompts:
                         logg.info(f"--- Processing: {img_name} | Prompt: '{prompt}' | Negative Prompt: '{neg_prompt}' ---")
                         img = load_image(img_name, cfg)
-                        generator.inference(img, img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt)   
+                        generator.inference(img, img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt, save_all=True)   
     else:
         logg.error(f"Unknown run_mode: {run_mode}")
 
   
 @hydra.main(config_path=".", config_name="config")
-def automated_run(cfg: DictConfig):
+def automated_run_folder(cfg: DictConfig):
     log_config(cfg)
     create_output_dirs(cfg)
     generator = DatasetGenerator(cfg)
@@ -205,7 +205,7 @@ def automated_run(cfg: DictConfig):
                 prompt_inpaint = random.choice(prompt)
             logg.info(f"Processing {img_name} for class '{prompt_seg}' with prompt '{prompt_inpaint}'")
             
-            inpainted_image, selected_mask = generator.inference(img, img_name, prompt_seg=prompt_seg, prompt_inpaint=prompt_inpaint, save_all=False)
+            inpainted_image, selected_mask = generator.inference(img, img_name, prompt_seg=prompt_seg, prompt_inpaint=prompt_inpaint, save_all=True)
 
             if cfg.input.red_herring:
                 red_herring_class = random.choice(red_herring_classes)
@@ -252,4 +252,4 @@ if __name__ == "__main__":
     # main()
     # augmentation_withoneimage()
     # augmentation_withtwoimages()
-    automated_run()
+    # automated_run_folder()
