@@ -152,6 +152,8 @@ def process_and_save_synthetic_change(
         "mask_before": os.path.join(data_dir, f"{pair_id}_mask_before.png"),
         "mask_after": os.path.join(data_dir, f"{pair_id}_mask_after.png"),
         "inpainted": os.path.join(data_dir, f"{pair_id}_inpainted.png"),
+        "txt_before": os.path.join(data_dir, f"{pair_id}_before.txt"),
+        "txt_after": os.path.join(data_dir, f"{pair_id}_after.txt"),
     }
     
     img1.save(paths["img_before"])
@@ -159,6 +161,13 @@ def process_and_save_synthetic_change(
     mask_before_pil.save(paths["mask_before"])
     mask_after_pil.save(paths["mask_after"])
     inpainted_image.save(paths["inpainted"])
+    viz_bbox_before = os.path.join(viz_dir, f"{pair_id}_bbox_before.jpg")
+    viz_bbox_after = os.path.join(viz_dir, f"{pair_id}_bbox_after.jpg")
+    save_voc_bboxes_and_overlay(image_pil=img1, instances=selected_instances, mask_key="before_mask", 
+        class_name=prompt_seg, txt_path=paths["txt_before"], overlay_path=viz_bbox_before)
+    save_voc_bboxes_and_overlay(image_pil=img2, instances=selected_instances, mask_key="after_mask", 
+        class_name=prompt_seg, txt_path=paths["txt_after"], overlay_path=viz_bbox_after)
+
 
     # 4. SAVE METADATA
     metadata = {
@@ -180,6 +189,58 @@ def process_and_save_synthetic_change(
                           labels=["Before overlay", "After overlay", "Inpainted"], font_path=cfg.input.font_path)
     grid.save(os.path.join(viz_dir, f"{pair_id}_QC.jpg"), quality=85) # JPG saves space for viz
 
+def get_bbox_from_mask(mask_array):
+    """Finds the Pascal VOC bounding box [xmin, ymin, xmax, ymax] of a binary mask."""
+    rows = np.any(mask_array, axis=1)
+    cols = np.any(mask_array, axis=0)
+    
+    if not np.any(rows) or not np.any(cols):
+        return None 
+
+    ymin, ymax = np.where(rows)[0][[0, -1]]
+    xmin, xmax = np.where(cols)[0][[0, -1]]
+    
+    return [int(xmin), int(ymin), int(xmax), int(ymax)]
+
+def save_voc_bboxes_and_overlay(image_pil, instances, mask_key, class_name, txt_path, overlay_path):
+    """
+    Extracts BBoxes, saves them to a VOC .txt file, and saves a visual overlay.
+    
+    Args:
+        image_pil: The original PIL Image.
+        instances: List of dictionaries containing the masks.
+        mask_key: String key to access the mask (e.g., 'before_mask' or 'after_mask').
+        class_name: The string name of the class (e.g., 'dog').
+        txt_path: Where to save the .txt file.
+        overlay_path: Where to save the visual QC image.
+    """
+    voc_lines = []
+    
+    overlay_img = image_pil.copy().convert("RGB")
+    draw = ImageDraw.Draw(overlay_img)
+    
+    for instance in instances:
+        mask = np.array(instance[mask_key]) > 0
+        bbox = get_bbox_from_mask(mask)
+        
+        if bbox:
+            xmin, ymin, xmax, ymax = bbox
+            
+            # 1. Format for text file: class_name xmin ymin xmax ymax
+            voc_lines.append(f"{class_name} {xmin} {ymin} {xmax} {ymax}")
+            
+            # 2. Draw on the image (Red rectangle, 3 pixels thick)
+            draw.rectangle([xmin, ymin, xmax, ymax], outline="red", width=3)
+            
+            # Draw the class name just above the box (with a tiny background for readability)
+            text_y = max(0, ymin - 15)
+            draw.rectangle([xmin, text_y, xmin + len(class_name)*6, text_y + 15], fill="red")
+            draw.text((xmin + 2, text_y), class_name, fill="white")
+            
+    with open(txt_path, "w") as f:
+        f.write("\n".join(voc_lines))
+        
+    overlay_img.save(overlay_path, quality=90)
 
 def collect_metadata_for_all_pairs(cfg):
 
