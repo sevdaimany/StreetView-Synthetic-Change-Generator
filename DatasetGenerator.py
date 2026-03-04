@@ -485,7 +485,7 @@ class DatasetGenerator:
             print(f"Generated mask shape: {mask.shape}")
             if save_all:
                 overlay = self.overlay_mask(img, mask)
-                seg_save_path = os.path.join(self.cfg.input.project_path, self.cfg.output.segmentation_overlay, f"{os.path.basename(image_path).split('.')[0]}_{prompt_seg}_{self.cfg.model.segmentation.split('/')[-1]}.png") 
+                seg_save_path = os.path.join(self.cfg.input.project_path, self.cfg.output.segmentation_overlay, f"{os.path.basename(image_name).split('.')[0]}_{prompt_seg}_{self.cfg.model.segmentation.split('/')[-1]}.png") 
                 overlay.save(seg_save_path)
                 print(f"Saved segmentation overlay to {seg_save_path}")
 
