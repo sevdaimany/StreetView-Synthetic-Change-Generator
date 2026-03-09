@@ -212,15 +212,16 @@ class DatasetGenerator:
                 mask = mask.squeeze().detach().cpu().numpy()
                 mask = (mask * 255).astype(np.uint8)
                 mask = Image.fromarray(mask).convert("L")
-            
+
+            width, height = img.size
             if self.num_controlnets == 0:
                 image = self.inpaint_pipeline(
                 prompt=prompt,
                 negative_prompt=negative_prompt,
                 image=img,
                 mask_image=mask,
-                # width=width,    
-                # height=height,
+                width=width,    
+                height=height,
                 generator=torch.Generator(self.device).manual_seed(0),
                 # output_type="latent" #for augmentation
                 ).images[0]

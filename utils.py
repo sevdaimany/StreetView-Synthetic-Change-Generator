@@ -11,15 +11,15 @@ import pandas as pd
 def create_output_dirs(cfg):
     """Utility to create output directories if they don't exist."""
     os.makedirs(cfg.output.base, exist_ok=True)
-    os.makedirs(os.path.join(cfg.output.base, cfg.output.segmentation_overlay), exist_ok=True)
-    os.makedirs(os.path.join(cfg.output.base, cfg.output.inpainting_results), exist_ok=True)
-    os.makedirs(os.path.join(cfg.output.base, cfg.output.edge_detection_results), exist_ok=True)
-    os.makedirs(os.path.join(cfg.output.base, cfg.output.red_herring_results), exist_ok=True)
-    os.makedirs(os.path.join(cfg.output.base, cfg.output.depth_results), exist_ok=True)
-    os.makedirs(os.path.join(cfg.output.base, cfg.output.inpaited_only_results), exist_ok=True)
-    os.makedirs(os.path.join(cfg.output.base, cfg.output.augmentation), exist_ok=True)
-    os.makedirs(os.path.join(cfg.output.base, cfg.output.augmentation_masks), exist_ok=True)
-    os.makedirs(os.path.join(cfg.output.base, cfg.output.correspondence_visualization), exist_ok=True)
+    # os.makedirs(os.path.join(cfg.output.base, cfg.output.segmentation_overlay), exist_ok=True)
+    # os.makedirs(os.path.join(cfg.output.base, cfg.output.inpainting_results), exist_ok=True)
+    # os.makedirs(os.path.join(cfg.output.base, cfg.output.edge_detection_results), exist_ok=True)
+    # os.makedirs(os.path.join(cfg.output.base, cfg.output.red_herring_results), exist_ok=True)
+    # os.makedirs(os.path.join(cfg.output.base, cfg.output.depth_results), exist_ok=True)
+    # os.makedirs(os.path.join(cfg.output.base, cfg.output.inpaited_only_results), exist_ok=True)
+    # os.makedirs(os.path.join(cfg.output.base, cfg.output.augmentation), exist_ok=True)
+    # os.makedirs(os.path.join(cfg.output.base, cfg.output.augmentation_masks), exist_ok=True)
+    os.makedirs(os.path.join(cfg.output.base, cfg.output.production_ready, cfg.output.correspondence_visualization), exist_ok=True)
     os.makedirs(os.path.join(cfg.output.base, cfg.output.production_ready), exist_ok=True)
 
 

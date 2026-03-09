@@ -80,7 +80,45 @@ def process_and_save_synthetic_change(
     mask_before_pil = mask_before_pil.resize(target_size, Image.Resampling.NEAREST)
     mask_after_np = np.array(mask_after_pil)
     mask_before_np = np.array(mask_before_pil)
+    logger.info( f"Sizes - img1: {img1.size}, img2: {img2.size}, inpainted: {inpainted_image.size}, mask_before: {mask_before_pil.size}, mask_after: {mask_after_pil.size}")
     
+    # ---------------------------------------------------------
+    # NEW: VERIFY BUILDING REMOVAL / REPLACEMENT
+    # ---------------------------------------------------------
+    verification_status = "Not Checked"
+    
+    if "buildings" == prompt_seg.lower():
+        logger.info("Running SAM verification on inpainted region...")
+        
+        new_building_instances = generator.segment(inpainted_image, prompt_seg)
+        
+        if  len(new_building_instances) == 0:
+            verification_status = "Removed"
+        else:
+            is_replaced = False
+            painted_area = np.sum(mask_after_np > 0)
+            
+            # 2. Check if any new building overlaps with the exact area we painted
+            for new_inst in new_building_instances:
+                # Assuming the single-image mask is stored under a key like 'mask'
+                new_mask = np.array(new_inst.cpu().numpy()) > 0 
+                
+                # Find the intersecting pixels (logical AND)
+                overlap = np.logical_and(new_mask, mask_after_np > 0)
+                overlap_pixels = np.sum(overlap)
+                
+                # If a newly found building covers more than 30% of the area we just painted,
+                # SDXL generated a new building instead of removing it.
+                if overlap_pixels > (0.30 * painted_area):
+                    is_replaced = True
+                    break # No need to check other buildings
+                    
+            verification_status = "Replaced" if is_replaced else "Removed"
+            
+        logger.info(f"[{sequence_id}] SAM Verification: Building was {verification_status.upper()}.")
+
+    # ---------------------------------------------------------
+
     # 3. GENERATE OVERLAYS
     overlay_img1 = generator.overlay_mask(img1, mask_before_np)
     overlay_img2 = generator.overlay_mask(img2, mask_after_np)
@@ -89,7 +127,7 @@ def process_and_save_synthetic_change(
     # 2. DEFINE DIRECTORY STRUCTURE
     # Separate 'raw' data for training and 'viz' for human checking
     base_dir = os.path.join(cfg.output.base, cfg.output.production_ready)
-    viz_dir = os.path.join(base_dir, "visualizations")
+    viz_dir = os.path.join(base_dir, "visualizations", sequence_id)
     data_dir = os.path.join(base_dir, "data", sequence_id)
     
     os.makedirs(viz_dir, exist_ok=True)
@@ -130,6 +168,7 @@ def process_and_save_synthetic_change(
         "class_name": prompt_seg,
         "prompt": prompt_inpaint,
         "num_instances": len(selected_instances),
+        "verification_status": verification_status,
         "img1_name": img_name1,
         "img2_name": img_name2,
         "paths": paths
@@ -187,69 +226,92 @@ def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipel
     valid_extensions = ('.png', '.jpg', '.jpeg')
     image_files = sorted([f for f in os.listdir(sequence_path) if f.lower().endswith(valid_extensions)])
     selection_mode = cfg.input.get("mask_selection_mode", "single")
-    
-
     logger.info(f"------------------- Processing sequence {sequence_id}.")
-    for i in range(len(image_files) - 1):
-        img_name1, img_name2 = image_files[i], image_files[i+1]
-        
+
+
+    pairs = []
+    # Pair first image with a random one from the next three
+    first_image = image_files[0]
+    random_next = random.choice(image_files[1:4])
+    pairs.append((first_image, random_next))
+
+    # Pair second image with third image
+    pairs.append((image_files[1], image_files[2]))
+
+    # for i in range(len(image_files) - 1):
+        # img_name1, img_name2 = image_files[i], image_files[i+1]
+    
+    for img_name1, img_name2 in pairs:
         try:
             img1 = load_image(os.path.join(sequence_path, img_name1), cfg)
             img2 = load_image(os.path.join(sequence_path, img_name2), cfg)
             sam_pipeline.load_image_pair(img1, img2)
             
             for class_name in classes:
-                prompt_seg = class_name
-                safe_class = prompt_seg.replace(" ", "")
-                prompt_inpaint = class_to_prompt[class_name]
-                
-                # RESTART LOGIC: Check if work is already done
-                if check_redundancy(sequence_id, class_name, img_name1, img_name2, cfg):
-                    logger.info(f"Skipping {class_name} for {img_name1} -> {img_name2} (already processed)")
-                    continue
-
-                # Core Processing
-                matches = sam_pipeline.track_class(prompt_seg)
-                if len(matches) == 0:
-                    logger.warning(f"No {prompt_seg} matches found. Skipping.")
-                    continue
-                
-                # Apply the Road Filter if this is a crack class
-                if "cracks" in prompt_seg.lower():
-                    road_matches = sam_pipeline.track_class("road")
-                    if len(road_matches) == 0:
-                        logger.warning(f"No road found to filter {prompt_seg}. Skipping this pair.")
-                        continue
-                        
-                    matches = filter_cracks_by_roads(matches, road_matches)
+                try:
+                    prompt_seg = class_name
+                    safe_class = prompt_seg.replace(" ", "")
+                    prompt_inpaint = class_to_prompt[class_name]
                     
-                    if len(matches) == 0:
-                        logger.warning(f"All {prompt_seg} matches were outside the road. Skipping.")
+                    # # RESTART LOGIC: Check if work is already done
+                    if check_redundancy(sequence_id, class_name, img_name1, img_name2, cfg):
+                        logger.info(f"Skipping {class_name} for {img_name1} -> {img_name2} (already processed)")
                         continue
 
-                # save_path = os.path.join(cfg.output.base, cfg.output.correspondence_visualization, f"{prompt_seg}_{img_name1.split('.')[0]}_{img_name2.split('.')[0]}.png")
-                # sam_pipeline.visualize_correspondence(img1, img2, matches, save_path=save_path)
+                    # Core Processing
+                    matches = sam_pipeline.track_class(prompt_seg)
+                    if len(matches) == 0:
+                        logger.warning(f"No {prompt_seg} matches found. Skipping.")
+                        continue
+                    
+                    # Apply the Road Filter if this is a crack class
+                    if "cracks" in prompt_seg.lower():
+                        road_matches = sam_pipeline.track_class("road")
+                        if len(road_matches) == 0:
+                            logger.warning(f"No road found to filter {prompt_seg}. Skipping this pair.")
+                            continue
+                            
+                        matches = filter_cracks_by_roads(matches, road_matches)
+                        
+                        if len(matches) == 0:
+                            logger.warning(f"All {prompt_seg} matches were outside the road. Skipping.")
+                            continue
 
-                # Selection logic...
-                if selection_mode == "biggest":
-                    selected_instances = [max(matches, key=lambda x: np.sum(x["after_mask"]))]
-                else:
-                    num_to_select = 1 if selection_mode == "single" else (len(matches) if selection_mode == "all" else random.randint(1, len(matches)))
-                    selected_instances = random.sample(matches, k=num_to_select)
 
-                process_and_save_synthetic_change(
-                    generator=generator,
-                    cfg=cfg,
-                    sequence_id=sequence_id,
-                    img1=img1,
-                    img2=img2,
-                    img_name1=img_name1,
-                    img_name2=img_name2,
-                    selected_instances=selected_instances,
-                    prompt_seg=prompt_seg,
-                    prompt_inpaint=prompt_inpaint
-                )
-                logger.info(f"Successfully processed {class_name} | {img_name1}")
+                    # comment if you dont want to save correspondences
+                    # save_path = os.path.join(cfg.output.base, cfg.output.production_ready, cfg.output.correspondence_visualization, f"{prompt_seg}_{sequence_id}_{img_name1.split('.')[0]}_{img_name2.split('.')[0]}.jpg")
+                    # sam_pipeline.visualize_correspondence(img1, img2, matches, save_path=save_path)
+
+                    # Selection logic...
+                    areas = [np.sum(np.array(m["after_mask"]) > 0) for m in matches]
+                    average_area = np.mean(areas)
+                    selected_matches = [m for m, area in zip(matches, areas) if area >= average_area]
+
+                    logger.info(f"{len(selected_matches)} matches selected after area filtering (average area: {average_area:.2f}), out of {len(matches)} total matches.")
+                    
+                    if selection_mode == "biggest":
+                        selected_instances = [max(selected_matches, key=lambda x: np.sum(x["after_mask"]))]
+                    else:
+                        num_to_select = 1 if selection_mode == "single" else (len(selected_matches) if selection_mode == "all" else random.randint(1, min(len(selected_matches), 2)))
+                        selected_instances = random.sample(selected_matches, k=num_to_select)
+
+                    process_and_save_synthetic_change(
+                        generator=generator,
+                        cfg=cfg,
+                        sequence_id=sequence_id,
+                        img1=img1,
+                        img2=img2,
+                        img_name1=img_name1,
+                        img_name2=img_name2,
+                        selected_instances=selected_instances,
+                        prompt_seg=prompt_seg,
+                        prompt_inpaint=prompt_inpaint
+                    )
+                    logger.info(f"Successfully processed {class_name} | {img_name1}")
+
+                except Exception as e:
+                    logger.error(f"Error processing CLASS '{class_name}' for pair {img_name1}-{img_name2}: {e}")
+                    logger.error(traceback.format_exc())
 
         except Exception as e:
             logger.error(f"Error processing pair {img_name1}-{img_name2}: {e}")
