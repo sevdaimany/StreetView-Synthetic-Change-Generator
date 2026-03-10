@@ -14,10 +14,10 @@ def quick_dataset_summary(output_dir):
     print("📊 QUICK DATASET SUMMARY")
     print("="*40)
     for split in splits:
-        json_count = len(list((base_out / "meta" / split).glob("*.json")))
-        img_count = len(list((base_out / "images" / split).glob("*.png"))) + len(list((base_out / "images" / split).glob("*.jpg")))
-        lbl_count = len(list((base_out / "labels" / split).glob("*.txt")))
-        mask_count = len(list((base_out / "masks" / split).glob("*.png")))
+        json_count = len(list((base_out / split / "meta").glob("*.json")))
+        img_count = len(list((base_out / split / "images").glob("*.png"))) + len(list((base_out / split / "images").glob("*.jpg")))
+        lbl_count = len(list((base_out / split / "labels").glob("*.txt")))
+        mask_count = len(list((base_out / split / "masks").glob("*.png")))
         
         print(f"[{split.upper():>5}] Pairs (JSONs): {json_count}")
         print(f"        -> Images: {img_count} | Labels: {lbl_count} | Masks: {mask_count}\n")
@@ -48,7 +48,7 @@ def format_and_split_dataset(data_base_dir, output_dir, train_ratio=0.7, val_rat
     
     for category in categories:
         for split in ["train", "val", "test"]:
-            (base_out / category / split).mkdir(parents=True, exist_ok=True)
+            (base_out / split / category).mkdir(parents=True, exist_ok=True)
             
     print(f"Created dataset structure in {output_dir}")
             
@@ -64,18 +64,18 @@ def format_and_split_dataset(data_base_dir, output_dir, train_ratio=0.7, val_rat
                 new_filename = f"{seq_id}_{filename}"
                 
                 if filename.endswith(".txt"):
-                    dest = base_out / "labels" / split_name / new_filename
+                    dest = base_out  / split_name / "labels" / new_filename
                     
                 elif filename.endswith(".json"):
-                    dest = base_out / "meta" / split_name / new_filename
+                    dest = base_out / split_name / "meta" / new_filename
                     
                 elif filename.lower().endswith((".png", ".jpg", ".jpeg")):
                     if "mask" in filename.lower():
-                        dest = base_out / "masks" / split_name / new_filename
+                        dest = base_out / split_name / "masks" / new_filename
                     else:
                         if "after" in file_path.name.lower():
                             continue
-                        dest = base_out / "images" / split_name / new_filename
+                        dest = base_out / split_name / "images" / new_filename
                 else:
                     continue 
                 shutil.copyfile(file_path, dest)
