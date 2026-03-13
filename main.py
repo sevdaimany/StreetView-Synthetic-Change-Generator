@@ -229,19 +229,25 @@ def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipel
     logger.info(f"------------------- Processing sequence {sequence_id}.")
 
 
-    pairs = []
+    default_pairs = []
     # Pair first image with a random one from the next three
-    first_image = image_files[0]
-    random_next = random.choice(image_files[1:4])
-    pairs.append((first_image, random_next))
-
     # Pair second image with third image
-    pairs.append((image_files[1], image_files[2]))
+    random_next = random.choice(image_files[1:4])
+    default_pairs.append((image_files[0], random_next))
+    default_pairs.append((image_files[1], image_files[2]))
+
+    # Generate the adjacent pairs (specifically for 'cracks' and 'traffic lights')
+    adjacent_pairs = []
+    for i in range(len(image_files) - 1):
+        adjacent_pairs.append((image_files[i], image_files[i+1]))
+
+    # Create a unique list of all pairs so we don't load identical image pairs twice
+    all_unique_pairs = list(set(default_pairs + adjacent_pairs))
 
     # for i in range(len(image_files) - 1):
         # img_name1, img_name2 = image_files[i], image_files[i+1]
     
-    for img_name1, img_name2 in pairs:
+    for img_name1, img_name2 in all_unique_pairs:
         try:
             img1 = load_image(os.path.join(sequence_path, img_name1), cfg)
             img2 = load_image(os.path.join(sequence_path, img_name2), cfg)
@@ -249,6 +255,15 @@ def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipel
             
             for class_name in classes:
                 try:
+                    if class_name == "cracks" and current_pair not in adjacent_pairs:
+                        continue  # Skip: "cracks" should only process adjacent pairs
+                    
+                    if class_name == "traffic signs" and current_pair not in adjacent_pairs:
+                        continue  # Skip: "traffic signs" should only process adjacent pairs
+                    
+                    if class_name != "cracks" and class_name != "traffic signs" and current_pair not in default_pairs:
+                        continue  # Skip: other classes should only process the default pairs
+
                     prompt_seg = class_name
                     safe_class = prompt_seg.replace(" ", "")
                     prompt_inpaint = class_to_prompt[class_name]
