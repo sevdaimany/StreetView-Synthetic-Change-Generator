@@ -65,10 +65,23 @@ input:
 
   prompt_seg: "roads" # cracks, buildings, traffic signs, roads, building under reconstruction
   prompts_seg:
-    buildings: "(sky, trees) matching the surrounding context"
-    traffic signs: ""
-    cracks: ""
-    buildings under reconstruction: "completed building" 
+    # buildings: "(sky, trees) matching the surrounding context"
+    # traffic signs: ""
+    # cracks: ""
+    # buildings under reconstruction: "completed building" 
+    # traffic lights: ""
+    # crosswalks: ""
+    # trash cans: ""
+
+    lane markings: ""
+    lane marking: ""
+    road striping: ""
+    traffic line system: ""
+
+    # carriageway: ""
+    # road lines: ""
+    # trees: ""
+
     # roads:
     #   - "urban road after heavy rain, large pothole filled with water, reflective puddle inside a damaged cavity, cracked and eroded asphalt edges, wet surface, realistic lighting, detailed texture photography"
     #   - "a deep pothole in an asphalt road filled with muddy rainwater, strong shadow gradient, reflective water with sky reflection, broken crumbling asphalt edges, realistic road damage, high resolution"
@@ -110,20 +123,20 @@ augmentation:
   class_name: "buildings" # for SAM 3 instance correspondence
 
 output:
-  base: "/mnt/stores/store-DAI/pocs/simany/results_pipeline/"
-  # base: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results/"
+  # base: "/mnt/stores/store-DAI/pocs/simany/results_pipeline/"
+  base: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results_v2/"
   segmentation_overlay: "segmentation_overlay/"
-  inpainting_results: "inpainting_v2/"
+  inpainting_results: "inpainting/"
   panorama_to_perspective: "panorama_to_perspective/"
   stitching_results: "stitching/"
   edge_detection_results: "edge_detection/"
   red_herring_results: "red_herring/"
   depth_results: "depth/"
-  inpaited_only_results: "inpainted_only_v2/"
+  inpaited_only_results: "inpainted_only/"
   augmentation: "augmentation/"
   augmentation_masks: "augmentation_masks/"
   correspondence_visualization: "correspondence_visualization/"
-  production_ready: "V2.3/"
+  production_ready: "V1.0/"
 
 
 

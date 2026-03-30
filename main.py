@@ -232,20 +232,25 @@ def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipel
     default_pairs = []
     # Pair first image with a random one from the next three
     # Pair second image with third image
-    random_next = random.choice(image_files[1:4])
+    random_next = random.choice(image_files[0:3])
     default_pairs.append((image_files[0], random_next))
     default_pairs.append((image_files[1], image_files[2]))
 
     # Generate the adjacent pairs (specifically for 'cracks' and 'traffic lights')
     adjacent_pairs = []
-    for i in range(len(image_files) - 1):
+    for i in range(len(image_files[0:3]) - 1):
         adjacent_pairs.append((image_files[i], image_files[i+1]))
 
     # Create a unique list of all pairs so we don't load identical image pairs twice
     all_unique_pairs = list(set(default_pairs + adjacent_pairs))
+    print(f"len Default pairs: {len(default_pairs)}")
+    print(f"len Adjacent pairs: {len(adjacent_pairs)}")
+    print(f"len All unique pairs to process: {len(all_unique_pairs)}")
 
     # for i in range(len(image_files) - 1):
         # img_name1, img_name2 = image_files[i], image_files[i+1]
+
+    adjacent_classes = ["cracks", "traffic signs", "traffic lights", "trash cans", 'crosswalks'] # classes that require adjacent pairing logic
     
     for img_name1, img_name2 in all_unique_pairs:
         try:
@@ -256,13 +261,10 @@ def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipel
             
             for class_name in classes:
                 try:
-                    if class_name == "cracks" and current_pair not in adjacent_pairs:
+                    if class_name in adjacent_classes and current_pair not in adjacent_pairs:
                         continue  # Skip: "cracks" should only process adjacent pairs
                     
-                    if class_name == "traffic signs" and current_pair not in adjacent_pairs:
-                        continue  # Skip: "traffic signs" should only process adjacent pairs
-                    
-                    if class_name != "cracks" and class_name != "traffic signs" and current_pair not in default_pairs:
+                    if class_name not in adjacent_classes and current_pair not in default_pairs:
                         continue  # Skip: other classes should only process the default pairs
 
                     prompt_seg = class_name
@@ -297,6 +299,8 @@ def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipel
                     # comment if you dont want to save correspondences
                     # save_path = os.path.join(cfg.output.base, cfg.output.production_ready, cfg.output.correspondence_visualization, f"{prompt_seg}_{sequence_id}_{img_name1.split('.')[0]}_{img_name2.split('.')[0]}.jpg")
                     # sam_pipeline.visualize_correspondence(img1, img2, matches, save_path=save_path)
+                    # continue # Skip the rest if you only want to save correspondences and not generate synthetic changes
+
 
                     # Selection logic...
                     areas = [np.sum(np.array(m["after_mask"]) > 0) for m in matches]
