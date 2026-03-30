@@ -46,7 +46,7 @@ def load_image(image_name, cfg):
     image_path = os.path.join(cfg.input.project_path, cfg.input.image_folder, image_name)
     img = Image.open(image_path).convert("RGB")
     if 'panorama' in image_name.lower():
-        img = img.resize((cfg.input.resize_width, cfg.input.resize_height), Image.BILINEAR)
+        img = img.resize((cfg.input.resize_width, cfg.input.resize_height), Image.Resampling.LANCZOS)
     return img
     
 
