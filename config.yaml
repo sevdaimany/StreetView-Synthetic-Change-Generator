@@ -27,13 +27,13 @@ input:
 
   image_folder: "images_2/"
   # resize_width: 1024
-  resize_width: 1024
-  resize_height: 1024
+  resize_width: 1536
+  resize_height: 640
   mask_index: 0 # which instance of the prompt_seg class to mask, -1 for random, -2 for largest
-  mask_selection_mode: "biggest" # "single", "subset" , "biggest", "all"
+  mask_selection_mode: "single" # "single", "subset" , "biggest", "all"
   
   dilated_mask: true # whether to dilate the mask to include some context around the segmented object
-  red_herring: True # whether to add red herrings, should be removed and randomly added in pipeline
+  red_herring: False # whether to add red herrings, should be removed and randomly added in pipeline
   add_pothole: true
 
   canny: false
