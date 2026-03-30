@@ -46,7 +46,7 @@ def process_and_save_synthetic_change(
     Extracts masks, runs the inpainting generator, creates visual overlays, 
     and saves the complete before/after pipeline to disk.
     """
-    # 1. EXTRACT AND MERGE BOTH 'BEFORE' AND 'AFTER' MASKS
+    # EXTRACT AND MERGE BOTH 'BEFORE' AND 'AFTER' MASKS FOR ALL SELECTED INSTANCES
     H, W = selected_instances[0]["after_mask"].shape
     merged_after = np.zeros((H, W), dtype=bool)
     merged_before = np.zeros((H, W), dtype=bool)
@@ -64,7 +64,7 @@ def process_and_save_synthetic_change(
     mask_after_pil = Image.fromarray(mask_after_np, mode="L")
     mask_before_pil = Image.fromarray(mask_before_np, mode="L")
 
-    # 2. PASS TO INPAINTING
+    # PASS TO INPAINTING
     inpainted_image, _ = generator.inference(
         img=img2, 
         image_name=img_name2, 
@@ -74,21 +74,23 @@ def process_and_save_synthetic_change(
         save_all=False 
     )
     # Standardize sizes
+    print(f"After generator.inference: img1 size: {img1.size}, img2 size: {img2.size},  inpainted size: {inpainted_image.size}, mask_after size: {mask_after_pil.size}")
+                    
     target_size = img1.size
-    inpainted_image = inpainted_image.resize(target_size, Image.Resampling.LANCZOS)
-    mask_after_pil = mask_after_pil.resize(target_size, Image.Resampling.NEAREST)
-    mask_before_pil = mask_before_pil.resize(target_size, Image.Resampling.NEAREST)
+    if inpainted_image.size != target_size or mask_after_pil.size != target_size or mask_before_pil.size != target_size:
+        logger.warning(f"Size mismatch detected. Resizing all to {target_size}.")
+        inpainted_image = inpainted_image.resize(target_size, Image.Resampling.LANCZOS)
+        mask_after_pil = mask_after_pil.resize(target_size, Image.Resampling.NEAREST)
+        mask_before_pil = mask_before_pil.resize(target_size, Image.Resampling.NEAREST)
     mask_after_np = np.array(mask_after_pil)
     mask_before_np = np.array(mask_before_pil)
-    logger.info( f"Sizes - img1: {img1.size}, img2: {img2.size}, inpainted: {inpainted_image.size}, mask_before: {mask_before_pil.size}, mask_after: {mask_after_pil.size}")
+    logger.info( f"After Size Standardization - img1: {img1.size}, img2: {img2.size}, inpainted: {inpainted_image.size}, mask_before: {mask_before_pil.size}, mask_after: {mask_after_pil.size}")
     
-    # ---------------------------------------------------------
-    # NEW: VERIFY BUILDING REMOVAL / REPLACEMENT
-    # ---------------------------------------------------------
+    # VERIFY BUILDING REMOVAL / REPLACEMENT
     verification_status = "Not Checked"
     
     if "buildings" == prompt_seg.lower():
-        logger.info("Running SAM verification on inpainted region...")
+        logger.info("Running SAM removal/ replacement verification on inpainted region...")
         
         new_building_instances = generator.segment(inpainted_image, prompt_seg)
         
@@ -98,7 +100,7 @@ def process_and_save_synthetic_change(
             is_replaced = False
             painted_area = np.sum(mask_after_np > 0)
             
-            # 2. Check if any new building overlaps with the exact area we painted
+            # Check if any new building overlaps with the exact area we painted
             for new_inst in new_building_instances:
                 # Assuming the single-image mask is stored under a key like 'mask'
                 new_mask = np.array(new_inst.cpu().numpy()) > 0 
@@ -114,17 +116,15 @@ def process_and_save_synthetic_change(
                     break # No need to check other buildings
                     
             verification_status = "Replaced" if is_replaced else "Removed"
-            
         logger.info(f"[{sequence_id}] SAM Verification: Building was {verification_status.upper()}.")
 
-    # ---------------------------------------------------------
 
-    # 3. GENERATE OVERLAYS
+    # GENERATE OVERLAYS
     overlay_img1 = generator.overlay_mask(img1, mask_before_np)
     overlay_img2 = generator.overlay_mask(img2, mask_after_np)
     overlay_inpainted = generator.overlay_mask(inpainted_image, mask_after_np)
 
-    # 2. DEFINE DIRECTORY STRUCTURE
+    # DEFINE DIRECTORY STRUCTURE
     # Separate 'raw' data for training and 'viz' for human checking
     base_dir = os.path.join(cfg.output.base, cfg.output.production_ready)
     viz_dir = os.path.join(base_dir, "visualizations", sequence_id)
@@ -136,7 +136,7 @@ def process_and_save_synthetic_change(
     safe_class = prompt_seg.replace(" ", "_")
     pair_id = f"{img_name1.split('.')[0]}_to_{img_name2.split('.')[0]}_{safe_class}"
 
-    # 3. SAVE TRAINING ASSETS
+    # SAVE TRAINING ASSETS
     # We save only the essentials for the model here
     paths = {
         "img_before": os.path.join(data_dir, f"{pair_id}_before.png"),
@@ -252,6 +252,7 @@ def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipel
             img1 = load_image(os.path.join(sequence_path, img_name1), cfg)
             img2 = load_image(os.path.join(sequence_path, img_name2), cfg)
             sam_pipeline.load_image_pair(img1, img2)
+            current_pair = (img_name1, img_name2)
             
             for class_name in classes:
                 try:
@@ -310,6 +311,7 @@ def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipel
                         num_to_select = 1 if selection_mode == "single" else (len(selected_matches) if selection_mode == "all" else random.randint(1, min(len(selected_matches), 2)))
                         selected_instances = random.sample(selected_matches, k=num_to_select)
 
+                    print(f"Before processing synthetic change: img1 size: {img1.size}, img2 size: {img2.size}, segmentation size: {selected_instances[0]['after_mask'].shape}")
                     process_and_save_synthetic_change(
                         generator=generator,
                         cfg=cfg,
