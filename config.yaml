@@ -109,15 +109,15 @@ augmentation:
 
 output:
   # base: "/mnt/stores/store-DAI/pocs/simany/results_pipeline/"
-  base: "/home/SImany/data_generation_pipeline/results/"
+  base: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results_v2/"
   segmentation_overlay: "segmentation_overlay/"
-  inpainting_results: "inpainting_v3/"
+  inpainting_results: "inpainting/"
   panorama_to_perspective: "panorama_to_perspective/"
   stitching_results: "stitching/"
   edge_detection_results: "edge_detection/"
   red_herring_results: "red_herring/"
   depth_results: "depth/"
-  inpaited_only_results: "inpainted_only_v3/"
+  inpaited_only_results: "inpainted_only/"
   augmentation: "augmentation/"
   augmentation_masks: "augmentation_masks/"
   correspondence_visualization: "correspondence_visualization/"
