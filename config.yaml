@@ -17,15 +17,17 @@ model:
 
   inpainting: "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"  
   vae: "madebyollin/sdxl-vae-fp16-fix"
-  # controlnet_depth: "diffusers/controlnet-depth-sdxl-1.0"
-  # controlnet_canny: "diffusers/controlnet-canny-sdxl-1.0"
+  controlnet_depth: "diffusers/controlnet-depth-sdxl-1.0"
+  controlnet_canny: "diffusers/controlnet-canny-sdxl-1.0"
+  dap_config_path: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/DAP/config/infer.yaml"
+  dap_load_weights_dir: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/DAP/weights"
 
 input:
-  # project_path: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator"
-  project_path: "/home/SImany/data_generation_pipeline"
+  project_path: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator"
+  # project_path: "/home/SImany/data_generation_pipeline"
   font_path: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
-  image_folder: "images_2/"
+  image_folder: "images/"
   # resize_width: 1024
   resize_width: 1536
   resize_height: 640
@@ -36,8 +38,8 @@ input:
   red_herring: False # whether to add red herrings, should be removed and randomly added in pipeline
   add_pothole: true
 
-  canny: false
-  depth: false
+  canny: True
+  depth: True
   inpaint: false # only for stable diffusion inpainting
   
   # "combinatorial" = test every prompt on every image
@@ -46,14 +48,14 @@ input:
   
   image_name: "panorama1.jpg"
   image_names: 
-    - "image_13.jpg"
+    # - "image_13.jpg"
     # - "5.jpg"
     # - "6.jpg"
     # # - "8.jpg"
-    # - "panorama1.jpg"
-    # - "panorama2.jpg"
-    # - "panorama3.jpg"
-    # - "panorama4.jpg"
+    - "panorama1.jpg"
+    - "panorama2.jpg"
+    - "panorama3.jpg"
+    - "panorama7.jpg"
     # - "panorama5.jpg"
     # - "panorama6.jpg"
     
@@ -86,13 +88,20 @@ input:
     # - "building wrapped in scaffolding"
     # - "building under reconstruction"
     # - "(sky, trees) matching the surrounding context"
-    - ""
+    # - ""
     # - "sky"
     # - "background"
     # - "disappear"
     # - "a deep pothole in an asphalt road filled with muddy rainwater, strong shadow gradient, reflective water with sky reflection, broken crumbling asphalt edges, realistic road damage, high resolution"
     # - "urban road after heavy rain, large pothole filled with water, reflective puddle inside a damaged cavity, cracked and eroded asphalt edges, wet surface, realistic lighting, detailed texture photography"
-  
+    # - "same street, nighttime, street lights on, dark sky"
+    # - "same street, nighttime, low light, deep shadows"
+    # - "same street, sunny day, clear sky, bright lighting"
+    - "same street, foggy weather, low visibility, misty atmosphere"
+    - "same street, snow, overcast sky"
+    - "same street, autumn, fallen leaves on the ground"
+    - "same street, spring, flowers blooming"
+
   negative_prompts_inpaint:  # Flux doesnt get negative prompts
     # - "cartoon, painting, warped geometry, blurry"
     # - "building"
@@ -111,7 +120,7 @@ output:
   # base: "/mnt/stores/store-DAI/pocs/simany/results_pipeline/"
   base: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results_v2/"
   segmentation_overlay: "segmentation_overlay/"
-  inpainting_results: "inpainting/"
+  inpainting_results: "inpainting_segmented_sam/"
   panorama_to_perspective: "panorama_to_perspective/"
   stitching_results: "stitching/"
   edge_detection_results: "edge_detection/"

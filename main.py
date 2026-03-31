@@ -166,7 +166,7 @@ def main(cfg: DictConfig):
                 for prompt, neg_prompt in zip(prompts, neg_prompts):
                     logg.info(f"--- Processing: {img_name} | Prompt: '{prompt}' | Negative Prompt: '{neg_prompt}' ---")
                     img = load_image(img_name, cfg)
-                    generator.inference(img, img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt, save_all=True)
+                    generator.inference_change_style(img, img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt, save_all=True)
             
             # Scenario B: Lengths differ (or one is length 1) -> Iterate on BOTH (all combinations)
             else:
@@ -174,11 +174,11 @@ def main(cfg: DictConfig):
                     for neg_prompt in neg_prompts:
                         logg.info(f"--- Processing: {img_name} | Prompt: '{prompt}' | Negative Prompt: '{neg_prompt}' ---")
                         img = load_image(img_name, cfg)
-                        generator.inference(img, img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt, save_all=True)   
+                        generator.inference_change_style(img, img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt, save_all=True)   
     else:
         logg.error(f"Unknown run_mode: {run_mode}")
 
-  
+
 @hydra.main(config_path=".", config_name="config")
 def automated_run_folder(cfg: DictConfig):
     log_config(cfg)
