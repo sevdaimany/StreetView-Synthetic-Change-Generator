@@ -52,11 +52,14 @@ input:
     # - "5.jpg"
     # - "6.jpg"
     # # - "8.jpg"
+
+    - "panorama8.jpg"
     - "panorama1.jpg"
     - "panorama2.jpg"
     - "panorama3.jpg"
     - "panorama7.jpg"
-    # - "panorama5.jpg"
+    
+    
     # - "panorama6.jpg"
     
     # - "4.jpg"
@@ -97,10 +100,13 @@ input:
     # - "same street, nighttime, street lights on, dark sky"
     # - "same street, nighttime, low light, deep shadows"
     # - "same street, sunny day, clear sky, bright lighting"
-    - "same street, foggy weather, low visibility, misty atmosphere"
-    - "same street, snow, overcast sky"
+    # - "same street, snow, overcast sky"
+    # - "same street, spring, flowers blooming"
+    # - "late night, very low light"
+
+    # - "same street, foggy weather, low visibility, misty atmosphere"
+    - "same street, heavy snow, overcast sky"
     - "same street, autumn, fallen leaves on the ground"
-    - "same street, spring, flowers blooming"
 
   negative_prompts_inpaint:  # Flux doesnt get negative prompts
     # - "cartoon, painting, warped geometry, blurry"

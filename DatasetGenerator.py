@@ -37,8 +37,8 @@ class DatasetGenerator:
         self.cfg = cfg
         self.num_controlnets = int(cfg.input.depth) + int(cfg.input.canny) + int(cfg.input.inpaint)
 
-        self.segformerextractor = SegformerImageProcessor.from_pretrained("nvidia/segformer-b4-finetuned-cityscapes-1024-1024")
-        self.segformermodel = SegformerForSemanticSegmentation.from_pretrained("nvidia/segformer-b4-finetuned-cityscapes-1024-1024", use_safetensors=True)
+        # self.segformerextractor = SegformerImageProcessor.from_pretrained("nvidia/segformer-b4-finetuned-cityscapes-1024-1024")
+        # self.segformermodel = SegformerForSemanticSegmentation.from_pretrained("nvidia/segformer-b4-finetuned-cityscapes-1024-1024", use_safetensors=True)
 
         if self.use_flux:
             if self.num_controlnets == 0:
@@ -364,9 +364,6 @@ class DatasetGenerator:
         return depth
         
                 
-
-    
-
     def dilate_mask(self, mask, radius=8):
         """Often improves seams: dilate mask a bit so model repaints edges cleanly."""
         m = np.array(mask.cpu().numpy().astype(np.uint8) * 255)
@@ -521,12 +518,9 @@ class DatasetGenerator:
         CAR = 13
         TERRAIN = 11
 
-
         BUILDING_ID   = 2  # preserve
         TRAFFIC_LIGHT = 6
         TRAFFIC_SIGN = 7
-
-        
 
         inputs = self.segformerextractor(images=img, return_tensors="pt")
         with torch.no_grad():
@@ -579,14 +573,15 @@ class DatasetGenerator:
         mask_array = np.full((img_size[1], img_size[0]), -1, dtype=np.float32)
 
         # Define semantic groups and their mask intensities
-        region_config = [(["sky", "clouds", "sun"], 255),
-            (["roads", "asphalt", "streets"], 255),
-            (["sidewalks", "pavement"], 255),
-            (["vegetation", "trees", "grass"], 255),
-            (["vehicles", "cars", "trucks", "bicycles"], 255),
-            (["buildings", "walls"], 60),
+        region_config = [
+            # (["sky", "clouds", "sun"], 255),
+            # (["roads", "asphalt", "streets"], 255),
+            # (["sidewalks", "pavement"], 255),
+            # (["vegetation", "trees", "grass"], 255),
+            (["buildings", "walls", "Billboards", "vehicles"], 80),
             (["traffic signs", "pole", "traffic lights"], 0),
-            (["trash cans"], 0)]
+            (["trash cans"], 0)
+            ]
 
         for prompts, mask_value in region_config:
             class_mask = np.zeros((img_size[1], img_size[0]), dtype=bool)
@@ -603,6 +598,7 @@ class DatasetGenerator:
                     
                     # FIX 3: Safe PIL resizing for boolean arrays (Safety net)
                     if m_np.shape != (img_size[1], img_size[0]):
+                        print(f"Resizing mask for prompt '{prompt}' from {m_np.shape} to {img_size[::-1]}")
                         m_img = Image.fromarray((m_np * 255).astype(np.uint8))
                         m_resized = np.array(m_img.resize(img_size, Image.NEAREST)) > 127
                     else:
@@ -619,7 +615,6 @@ class DatasetGenerator:
 
         self.segmodel.to("cpu")
 
-        # FIX 1 (cont.): Apply fallback mild-change only to truly untouched pixels
         mask_array[mask_array == -1] = 255
 
         # Smooth mask edges to avoid hard seams
@@ -666,8 +661,6 @@ class DatasetGenerator:
     def inference_change_style(self, img, image_name, prompt_seg, prompt_inpaint, seg_mask=None, negative_prompt_inpaint=None, save_all=False):
         # generate control images using edge detection and depth estimation for controlnet conditioning
         control_images = self.generate_control_images(img, None, image_name, save=save_all)
-        # print(f"Generated {len(control_images)} control images for style change inference, type control images: {type(control_images[0])}, {type(control_images[1])}.")
-        # print(f"image type: {type(img)}, image size: {img.size}")
         # Inpainting
         # full_mask = Image.new("L", img.size, 255)
         # full_mask = self.generate_weather_mask(img, softness=True)
@@ -679,7 +672,7 @@ class DatasetGenerator:
         #     print(f"Saved weather mask to {save_path}")
 
         mask_save_path = os.path.join(
-            self.cfg.output.base, self.cfg.output.segmentation_overlay, f"{image_name.split('.')[0]}_weather_mask_sam.png"
+            self.cfg.output.base, self.cfg.output.segmentation_overlay, f"{image_name.split('.')[0]}_weather_mask_sam_2.png"
         ) if save_all else None
         full_mask = self.sam_weather_mask(img, save_path=mask_save_path)
         
