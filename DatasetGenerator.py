@@ -256,6 +256,7 @@ class DatasetGenerator:
                     negative_prompt=negative_prompt,
                     image=img,
                     mask_image=mask,
+                    strength=self.cfg.model.strength if hasattr(self.cfg.model, 'strength') else 1.0, # default 1.0
                     control_image=control_images,
                     controlnet_conditioning_scale=controlnet_conditioning_scale,
                     control_guidance_start=control_guidance_start,
@@ -660,7 +661,6 @@ class DatasetGenerator:
         
     def inference_change_style(self, img, image_name, prompt_seg, prompt_inpaint, seg_mask=None, negative_prompt_inpaint=None, save_all=False):
         # generate control images using edge detection and depth estimation for controlnet conditioning
-        control_images = self.generate_control_images(img, None, image_name, save=save_all)
         # Inpainting
         # full_mask = Image.new("L", img.size, 255)
         # full_mask = self.generate_weather_mask(img, softness=True)
@@ -676,9 +676,12 @@ class DatasetGenerator:
         ) if save_all else None
         full_mask = self.sam_weather_mask(img, save_path=mask_save_path)
         
+        control_images = self.generate_control_images(img, full_mask, image_name, save=save_all)
+        
         inpainted_image = self.inpainting(img, full_mask, prompt_inpaint,
                         negative_prompt=negative_prompt_inpaint,
                         control_images=control_images)
+        print(f"After inpainting: img {img.size}, mask {full_mask.size}, inpainted {inpainted_image.size}")
 
         # Save inpainting results
         len_prompt_toshow = min(25, len(prompt_inpaint))
@@ -687,11 +690,15 @@ class DatasetGenerator:
             inpainted_name += "_canny"
         if self.cfg.input.depth:
             inpainted_name += "_depth"
+        if self.cfg.input.inpaint:
+            inpainted_name += "_inpaint"
 
         inpainted_name += "_segmented"
         
         if self.use_xl:
             inpainted_name += "_sdxl"
+        else:
+            inpainted_name += f"_sd_strength{self.cfg.model.strength}"
         inpainted_name += ".png"
         
         save_path = os.path.join(self.cfg.output.base, self.cfg.output.inpainting_results, inpainted_name)
