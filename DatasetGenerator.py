@@ -716,6 +716,10 @@ class DatasetGenerator:
         plt.savefig(save_path)
         plt.show()
         print(f"Saved inpainted image to {save_path}")
+        # save both original and inpainted separately as well
+        inpainted_image.save(os.path.join(self.cfg.output.base, self.cfg.output.inpaited_only_results, inpainted_name)) 
+        img.save(os.path.join(self.cfg.output.base, self.cfg.output.inpaited_only_results, image_name.split('.')[0] + "_original.png"))
+
 
 
 
