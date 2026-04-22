@@ -4,14 +4,17 @@ import tempfile
 import numpy as np
 import torch
 from PIL import Image
-from sam3.model_builder import build_sam3_video_predictor
+from sam3.model_builder import build_sam3_video_predictor, build_sam3_multiplex_video_predictor
 from sam3.visualization_utils import prepare_masks_for_visualization
 import matplotlib.pyplot as plt
 
 class SAM3CorrespondencePipeline:
-    def __init__(self, device="cuda"):
+    def __init__(self, use_sam3=True, device="cuda"):
         print("Initializing SAM 3 Predictor (Loading weights to VRAM)...")
-        self.predictor = build_sam3_video_predictor()
+        if use_sam3:
+            self.predictor = build_sam3_video_predictor()
+        else:
+            self.predictor =  build_sam3_multiplex_video_predictor(use_fa3=False)
         self.device = device
         self.current_session_id = None
         self.temp_dir = None
