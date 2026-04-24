@@ -7,6 +7,7 @@ from PIL import Image
 from sam3.model_builder import build_sam3_video_predictor, build_sam3_multiplex_video_predictor
 from sam3.visualization_utils import prepare_masks_for_visualization
 import matplotlib.pyplot as plt
+import random
 
 class SAM3CorrespondencePipeline:
     def __init__(self, use_sam3=True, device="cuda"):
@@ -18,11 +19,13 @@ class SAM3CorrespondencePipeline:
         self.device = device
         self.current_session_id = None
         self.temp_dir = None
+        self.num_frames = 0
 
     def load_image_pair(self, img_1, img_2):
         """Saves images to a temp folder and starts a SAM 3 session."""
         # Clean up any previously open session just in case
         self.clear_current_pair()
+        self.num_frames = 2
         
         self.temp_dir = tempfile.mkdtemp()
         img_1.save(os.path.join(self.temp_dir, "00000.jpg"))
@@ -33,6 +36,24 @@ class SAM3CorrespondencePipeline:
         )
         self.current_session_id = response["session_id"]
         print("Image pair loaded into SAM 3 memory.")
+    
+    def load_image_sequence(self, images):
+        """Saves an arbitrary list of images to a temp folder and starts a SAM 3 session."""
+        self.clear_current_pair()
+        self.num_frames = len(images)
+        
+        self.temp_dir = tempfile.mkdtemp()
+        
+        # Save dynamically based on sequence length
+        for i, img in enumerate(images):
+            filename = f"{i:05d}.jpg"
+            img.save(os.path.join(self.temp_dir, filename))
+        
+        response = self.predictor.handle_request(
+            request=dict(type="start_session", resource_path=self.temp_dir)
+        )
+        self.current_session_id = response["session_id"]
+        print(f"Sequence of {self.num_frames} images loaded into SAM 3 memory.")
 
     def track_class(self, class_name):
         """
@@ -70,6 +91,37 @@ class SAM3CorrespondencePipeline:
         # Extract the matched pairs
         return self._extract_matches(clean_outputs)
 
+    def track_class_sequence(self, class_name):
+        """Tracks a specific class across all loaded frames."""
+        if not self.current_session_id:
+            raise RuntimeError("No images loaded. Call load_image_sequence() first.")
+            
+        # Reset memory for fresh tracking
+        self.predictor.handle_request(
+            request=dict(type="reset_session", session_id=self.current_session_id)
+        )
+
+        # Add the prompt to EVERY frame so the Detector registers new appearances
+        for i in range(self.num_frames):
+            self.predictor.handle_request(
+                request=dict(
+                    type="add_prompt",
+                    session_id=self.current_session_id,
+                    frame_index=i,
+                    text=class_name,
+                )
+            )
+        
+        # Propagate through the sequence
+        outputs_per_frame = {}
+        for stream_res in self.predictor.handle_stream_request(
+            request=dict(type="propagate_in_video", session_id=self.current_session_id)
+        ):
+            outputs_per_frame[stream_res["frame_index"]] = stream_res["outputs"]
+            
+        clean_outputs = prepare_masks_for_visualization(outputs_per_frame)
+        return self._extract_sequence_matches(clean_outputs)
+
     def clear_current_pair(self):
         """Closes the active session and deletes the temp images."""
         if self.current_session_id:
@@ -81,6 +133,8 @@ class SAM3CorrespondencePipeline:
         if self.temp_dir and os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
             self.temp_dir = None
+        self.num_frames = 0
+        
 
     def shutdown(self):
         """Completely shuts down the predictor and frees GPU workers."""
@@ -110,6 +164,49 @@ class SAM3CorrespondencePipeline:
                         "after_mask": mask_b
                     })
         return matched_pairs
+    
+    def _extract_sequence_matches(self, clean_outputs):
+        """Internal helper to parse masks across N frames, regardless of when they appear."""
+        matched_instances = []
+        
+        # 1. Gather EVERY unique object ID generated across ALL frames
+        all_obj_ids = set()
+        for frame_idx, frame_data in clean_outputs.items():
+            all_obj_ids.update(frame_data.keys())
+            
+        # If SAM found absolutely nothing in any frame, return empty
+        if not all_obj_ids:
+            return matched_instances
+            
+        # 2. Extract masks for each unique object across the timeline
+        for obj_id in all_obj_ids:
+            masks = []
+            valid_sequence = False
+            
+            for i in range(self.num_frames):
+                # Check if this frame exists and contains our specific object ID
+                if i in clean_outputs and obj_id in clean_outputs[i]:
+                    mask = clean_outputs[i][obj_id]
+                    
+                    # Ensure the mask isn't empty/noise (threshold of 50 pixels)
+                    if mask is not None and mask.sum() > 50:
+                        masks.append(mask)
+                        valid_sequence = True
+                    else:
+                        # Object is occluded or disappeared in this specific frame
+                        masks.append(None)
+                else:
+                    # Object hasn't appeared yet, or is gone
+                    masks.append(None)
+            
+            # 3. Keep the instance if it had a valid mask in at least ONE frame
+            if valid_sequence:
+                matched_instances.append({
+                    "instance_id": obj_id,
+                    "masks": masks
+                })
+                
+        return matched_instances
 
         
 
@@ -174,3 +271,41 @@ class SAM3CorrespondencePipeline:
         plt.tight_layout()
         plt.savefig(save_path, bbox_inches='tight')
         print(f"Saved correspondence visualization to {save_path}")
+    
+    def visualize_sequence_correspondence(self, images, matched_instances, save_path, alpha=0.5):
+        """Dynamically creates subplots to visualize tracking across N images."""
+        num_images = len(images)
+        fig, axes = plt.subplots(1, num_images, figsize=(10 * num_images, 10))
+        
+        # Handle case where num_images == 1 for consistency
+        if num_images == 1:
+            axes = [axes]
+            
+        vis_images = [np.array(img).astype(np.float32) for img in images]
+        
+        np.random.seed(42)
+        colors = np.random.randint(0, 255, size=(100, 3))
+
+        for inst in matched_instances:
+            obj_id = inst["instance_id"]
+            color = colors[hash(str(obj_id)) % 100]
+            
+            for i, mask in enumerate(inst["masks"]):
+                if mask is not None and mask.sum() > 0:
+                    vis_images[i][mask > 0] = vis_images[i][mask > 0] * (1 - alpha) + color * alpha
+
+                    y_coords, x_coords = np.where(mask > 0)
+                    cy, cx = int(y_coords.mean()), int(x_coords.mean())
+                    axes[i].text(cx, cy, f"ID: {obj_id}", color='white', 
+                                fontsize=12, fontweight='bold', ha='center',
+                                bbox=dict(facecolor='black', alpha=0.5, edgecolor='none'))
+
+        for i in range(num_images):
+            axes[i].imshow(vis_images[i].astype(np.uint8))
+            axes[i].set_title(f"Frame {i} - {len(matched_instances)} Instances", fontsize=16)
+            axes[i].axis("off")
+        
+        plt.tight_layout()
+        plt.savefig(save_path, bbox_inches='tight')
+        plt.close(fig) # Close the figure to free memory
+        print(f"Saved sequence visualization to {save_path}")
