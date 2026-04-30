@@ -77,6 +77,15 @@ class SAM3CorrespondencePipeline:
                 text=class_name,
             )
         )
+        # detect on both images
+        self.predictor.handle_request(
+            request=dict(
+                type="add_prompt",
+                session_id=self.current_session_id,
+                frame_index=1,
+                text=class_name,
+            )
+        )
         
         # Propagate to Image B
         outputs_per_frame = {}
