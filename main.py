@@ -218,6 +218,140 @@ def sam3_object_tracking(cfg: DictConfig):
     print(f"Selected instance ID: {instance_id} | Mask 1 shape: {mask_1.shape} | Mask 2 shape: {mask_2.shape}")
 
 
+def visualize_panorama_correspondence(pano_A, pano_B, master_mask_A, master_mask_B, save_path, alpha=0.5):
+    """
+    Visualizes matched instance masks side-by-side with consistent colors and IDs.
+    Adapted for 2D integer master masks.
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(20, 10))
+    
+    vis_a = pano_A.astype(np.float32).copy()
+    vis_b = pano_B.astype(np.float32).copy()
+    
+    # Get all unique object IDs across BOTH masks (excluding 0 / background)
+    unique_ids = np.unique(np.concatenate((master_mask_A, master_mask_B)))
+    unique_ids = [uid for uid in unique_ids if uid != 0]
+
+    # Generate a distinct color palette
+    np.random.seed(42)
+    colors = np.random.randint(0, 255, size=(100, 3))
+
+    for obj_id in unique_ids:
+        # Safely get a unique color
+        color = colors[int(obj_id) % 100]
+        
+        # Create boolean masks for this specific ID
+        mask_a = (master_mask_A == obj_id)
+        mask_b = (master_mask_B == obj_id)
+        
+        # 1. Overlay Mask on Image A 
+        if mask_a.sum() > 0:
+            vis_a[mask_a] = vis_a[mask_a] * (1 - alpha) + color * alpha
+
+            # Find centroid to place the text label
+            y_coords, x_coords = np.where(mask_a)
+            cy, cx = int(y_coords.mean()), int(x_coords.mean())
+            axes[0].text(cx, cy, f"ID: {obj_id}", color='white', 
+                        fontsize=12, fontweight='bold', ha='center',
+                        bbox=dict(facecolor='black', alpha=0.5, edgecolor='none'))
+            
+        # 2. Overlay Mask on Image B
+        if mask_b.sum() > 0:
+            vis_b[mask_b] = vis_b[mask_b] * (1 - alpha) + color * alpha
+        
+            # Find centroid to place the text label
+            y_coords, x_coords = np.where(mask_b)
+            cy, cx = int(y_coords.mean()), int(x_coords.mean())
+            axes[1].text(cx, cy, f"ID: {obj_id}", color='white', 
+                        fontsize=12, fontweight='bold', ha='center',
+                        bbox=dict(facecolor='black', alpha=0.5, edgecolor='none'))
+
+    # Calculate actual instance counts for the titles
+    count_a = len(np.unique(master_mask_A)) - (1 if 0 in master_mask_A else 0)
+    count_b = len(np.unique(master_mask_B)) - (1 if 0 in master_mask_B else 0)
+
+    # Display Image A
+    axes[0].imshow(vis_a.astype(np.uint8))
+    axes[0].set_title(f"Image A (Before) - {count_a} Instances", fontsize=16)
+    axes[0].axis("off")
+    
+    # Display Image B
+    axes[1].imshow(vis_b.astype(np.uint8))
+    axes[1].set_title(f"Image B (After) - {count_b} Instances", fontsize=16)
+    axes[1].axis("off")
+    
+    plt.tight_layout()
+    plt.savefig(save_path, bbox_inches='tight')
+    print(f"Saved correspondence visualization to {save_path}")
+
+
+@hydra.main(config_path=".", config_name="config")
+def sam3_object_tracking_cubemaps(cfg: DictConfig):
+    log_config(cfg)
+    create_output_dirs(cfg)
+    class_to_prompt = cfg.input.get("prompts_seg", {})   
+    classes_to_track = list(class_to_prompt.keys())
+    print(f"Classes to track: {classes_to_track}")
+
+    # input
+    target_object = "buildings"  
+
+    seq_id = "02b00ac0-83fd-4446-97d6-111d31699fa4"
+    image_1 = "03_center.jpg"
+    image_2 = "02_prev_1.jpg"
+    # image_1 = "buffer_04.jpg"
+
+
+    # seq_id = "fake"
+    # image_1 = "panorama3_original.png"
+    # image_2 = "panorama3_same street, heavy snow, _canny_depth_segmented_sd_strength0.8.png"
+
+    # seq_id = "argentina_835-Calle-57-La-Plata_11-2024"
+    # image_1 = "1.jpg"
+    # image_2 = "2.jpg"
+
+    img_1 = Image.open(os.path.join(cfg.input.project_path, cfg.input.image_folder, seq_id, image_1)).convert("RGB")
+    img_2 = Image.open(os.path.join(cfg.input.project_path, cfg.input.image_folder, seq_id, image_2)).convert("RGB")
+    resized_img_1 = img_1.resize((cfg.input.resize_width, cfg.input.resize_height), Image.Resampling.LANCZOS)
+    resized_img_2 = img_2.resize((cfg.input.resize_width, cfg.input.resize_height), Image.Resampling.LANCZOS)
+    pano_A = np.array(resized_img_1)
+    pano_B = np.array(resized_img_2)
+
+    # image_names = list(cfg.input.get("image_names", [cfg.input.get("image_name")]))
+    # resized_images = []
+    # for img_name in image_names:
+    #     img_path = os.path.join(cfg.input.project_path, cfg.input.image_folder, img_name)
+    #     img = Image.open(img_path).convert("RGB")
+    #     resized_img = img.resize(
+    #         (cfg.input.resize_width, cfg.input.resize_height), 
+    #         Image.Resampling.LANCZOS
+    #     )
+
+    #     resized_images.append(resized_img)
+    
+
+    sam3_pipeline = SAM3CorrespondencePipeline()
+    pano_tracker = PanoramaTracker(sam_pipeline=sam3_pipeline, face_resolution=512)
+    
+    master_mask_A, master_mask_B = pano_tracker.track_360_overlap(
+        pano_A=pano_A,
+        pano_B=pano_B,
+        target_class=target_object,
+    )
+
+    # --- 4. VISUALIZATION ---
+    final_output_path =  os.path.join(cfg.output.base, cfg.output.cubemap_tracking, f"tracked_{image_1.split('.')[0]}_{image_2.split('.')[0]}.jpg")
+    visualize_panorama_correspondence(
+        pano_A=pano_A, 
+        pano_B=pano_B, 
+        master_mask_A=master_mask_A, 
+        master_mask_B=master_mask_B, 
+        save_path=final_output_path
+    )
+    
+    sam3_pipeline.shutdown()
+
+
 
 @hydra.main(config_path=".", config_name="config")
 def main(cfg: DictConfig):
@@ -415,8 +549,8 @@ def sam3_object_tracking_sequence(cfg: DictConfig):
 if __name__ == "__main__":
     # main()
     # augmentation_withoneimage()
-    # sam3_object_tracking()
     # automated_run_folder()
+    sam3_object_tracking()
     # sam3_object_tracking_multiplex()
     # sam3_object_tracking_cubemaps()
-    sam3_object_tracking_sequence()
+    # sam3_object_tracking_sequence()
