@@ -12,11 +12,9 @@ from huggingface_hub import login
 from omegaconf import OmegaConf, DictConfig
 from Panorama import Panorama
 from SAM3Correspondence import SAM3CorrespondencePipeline
-from SAM3CorrespondenceMultiplex import SAM3CorrespondenceMultiplex
 import py360convert
 from CubemapsTracker import PanoramaTracker
 import matplotlib.pyplot as plt
-# from SAM3SequencePipeline import SAM3SequencePipeline
 
 login(os.getenv("HF_TOKEN"))
 logg = logging.getLogger(__name__)
@@ -26,16 +24,16 @@ def create_output_dirs(cfg):
     """Utility to create output directories if they don't exist."""
     os.makedirs(cfg.output.base, exist_ok=True)
     os.makedirs(os.path.join(cfg.output.base, cfg.output.correspondence_visualization), exist_ok=True)
-    os.makedirs(os.path.join(cfg.output.base, cfg.output.segmentation_overlay), exist_ok=True)
-    os.makedirs(os.path.join(cfg.output.base, cfg.output.inpainting_results), exist_ok=True)
-    os.makedirs(os.path.join(cfg.output.base, cfg.output.edge_detection_results), exist_ok=True)
-    os.makedirs(os.path.join(cfg.output.base, cfg.output.red_herring_results), exist_ok=True)
-    os.makedirs(os.path.join(cfg.output.base, cfg.output.depth_results), exist_ok=True)
-    os.makedirs(os.path.join(cfg.output.base, cfg.output.inpaited_only_results), exist_ok=True)
-    os.makedirs(os.path.join(cfg.output.base, cfg.output.augmentation), exist_ok=True)
-    os.makedirs(os.path.join(cfg.output.base, cfg.output.augmentation_masks), exist_ok=True)
-    os.makedirs(os.path.join(cfg.output.base, cfg.output.production_ready), exist_ok=True)
-    os.makedirs(os.path.join(cfg.output.base, cfg.output.cubemap_tracking), exist_ok=True)
+    # os.makedirs(os.path.join(cfg.output.base, cfg.output.segmentation_overlay), exist_ok=True)
+    # os.makedirs(os.path.join(cfg.output.base, cfg.output.inpainting_results), exist_ok=True)
+    # os.makedirs(os.path.join(cfg.output.base, cfg.output.edge_detection_results), exist_ok=True)
+    # os.makedirs(os.path.join(cfg.output.base, cfg.output.red_herring_results), exist_ok=True)
+    # os.makedirs(os.path.join(cfg.output.base, cfg.output.depth_results), exist_ok=True)
+    # os.makedirs(os.path.join(cfg.output.base, cfg.output.inpaited_only_results), exist_ok=True)
+    # os.makedirs(os.path.join(cfg.output.base, cfg.output.augmentation), exist_ok=True)
+    # os.makedirs(os.path.join(cfg.output.base, cfg.output.augmentation_masks), exist_ok=True)
+    # os.makedirs(os.path.join(cfg.output.base, cfg.output.production_ready), exist_ok=True)
+    # os.makedirs(os.path.join(cfg.output.base, cfg.output.cubemap_tracking), exist_ok=True)
 
 def log_config(cfg):
     logg.info(f"Configuration:\n{OmegaConf.to_yaml(cfg)}")
@@ -81,46 +79,6 @@ def augmentation_withoneimage(cfg: DictConfig):
     final_inpainted_img.save(save_path)
     print(f"Saved augmented image to {save_path}")
     
-@hydra.main(config_path=".", config_name="config")
-def sam3_object_tracking_multiplex(cfg: DictConfig):
-    log_config(cfg)
-    create_output_dirs(cfg)
-    class_to_prompt = cfg.input.get("prompts_seg", {})   
-    classes_to_track = list(class_to_prompt.keys())
-    # classes_to_track = ["buildings, traffic signs, roads"]
-    print(f"Classes to track: {classes_to_track}")
-
-    # input
-    image_names = list(cfg.input.get("image_names", [cfg.input.get("image_name")]))
-    resized_images = []
-    for img_name in image_names:
-        img_path = os.path.join(cfg.input.project_path, cfg.input.image_folder, img_name)
-        img = Image.open(img_path).convert("RGB")
-        resized_img = img.resize(
-            (cfg.input.resize_width, cfg.input.resize_height), 
-            Image.Resampling.LANCZOS
-        )
-
-        resized_images.append(resized_img)
-
-    pipeline = SAM3CorrespondenceMultiplex()
-    pipeline.load_image_sequence(resized_images)
-
-    outputs, class_id_mapping = pipeline.track_multiple_classes(classes_to_track)
-    save_path = os.path.join(cfg.output.base, cfg.output.correspondence_visualization, f"tracking_{image_names[0].split('.')[0]}_{image_names[1].split('.')[0]}.png")
-    pipeline.visualize_sequence(resized_images, outputs, save_path)
-
-    # 1. Find its index in your list (index 1)
-    building_ids = class_id_mapping.get("buildings", [])
-    print(f"Tracking {len(building_ids)} instances for 'buildings'.")
-    building_masks = pipeline.get_masks_for_single_class(outputs, target_obj_ids=building_ids)
-
-    # Visualize ONLY the buildings using the same built-in function
-    save_path_buildings = os.path.join(cfg.output.base, cfg.output.correspondence_visualization, f"building_tracking_{image_names[0].split('.')[0]}_{image_names[1].split('.')[0]}.png")
-    pipeline.visualize_sequence(resized_images, building_masks, save_path_buildings)
-
-
-    pipeline.shutdown()
 
 @hydra.main(config_path=".", config_name="config")
 def sam3_object_tracking(cfg: DictConfig):
@@ -478,71 +436,58 @@ def automated_run_folder(cfg: DictConfig):
 def sam3_object_tracking_sequence(cfg: DictConfig):
     log_config(cfg)
     create_output_dirs(cfg)
-    
-    print(f"image folder: {cfg.input.image_folder}")
-    
-    seq_id = "02b00ac0-83fd-4446-97d6-111d31699fa4"
-    # image_names =  ["01_prev_2.jpg", "02_prev_1.jpg", "03_center.jpg", "04_next_1.jpg", "05_next_2.jpg"]
-    image_names =  ["01_prev_2.jpg", "02_prev_1.jpg", "03_center.jpg", "04_next_1.jpg", "05_next_2.jpg"][::-1]  # Reverse the order to test robustness of tracking in both directions
 
-    
-    resized_images = []
-    for img_name in image_names:
-        img_path = os.path.join(cfg.input.project_path, cfg.input.image_folder, seq_id, img_name)
-        img = Image.open(img_path).convert("RGB")
-        resized_img = img.resize((cfg.input.resize_width, cfg.input.resize_height), Image.Resampling.LANCZOS)
-        resized_images.append(resized_img)
+    images_folder = os.path.join(cfg.input.project_path, cfg.input.image_folder)
 
-    use_sam3 = cfg.input.get("use_sam3", False)
-    sam_pipeline = SAM3CorrespondencePipeline(use_sam3=use_sam3, device="cuda")
-    
-    # 1. Load entire sequence
-    sam_pipeline.load_image_sequence(resized_images)
-    sam_version = "sam3" if use_sam3 else "sam3.1"
-    
-    classes_to_track = ["buildings", "traffic signs", "cracks", "trash bins", "cross walks"]
-    seq_str = f"{image_names[0].split('.')[0]}_to_{image_names[-1].split('.')[0]}"
-    
-    # NEW: Create a dictionary to store all our tracking results so we don't have to re-run SAM
-    all_tracked_data = {}
-    
-    # 2. Iterate dynamically over classes to track and save 
-    for class_name in classes_to_track:
-        matches = sam_pipeline.track_class_sequence(class_name)
-        
-        # Save the matches into our dictionary for later use
-        all_tracked_data[class_name] = matches
-        
-        print(f"Found {len(matches)} {class_name}.")
-        
-        if len(matches) > 0:
-            clean_name = class_name.replace(" ", "")
-            save_path = os.path.join(
-                cfg.output.base, 
-                cfg.output.correspondence_visualization, 
-                f"{clean_name}_{seq_id}_{seq_str}_{sam_version}_ALLframe_index.png"
-            )
-            sam_pipeline.visualize_sequence_correspondence(resized_images, matches, save_path=save_path)
+    all_subfolders = [f.path for f in os.scandir(images_folder) if f.is_dir()]
 
-
-    # 3. Extract data for synthetic change later (using the dictionary we just populated!)
-    building_matches = all_tracked_data.get("buildings", [])
+    for folder in all_subfolders:
+        print(f"\nProcessing folder: {folder}")
+        seq_id = os.path.basename(folder)
+        image_names = [f for f in os.listdir(folder) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        image_names.sort()
+        print(f"Found {len(image_names)} images: {image_names}")
+        
     
-    if building_matches:
-        selected_instance = random.choice(building_matches)
-        instance_id = selected_instance["instance_id"]
-        
-        mask_first_frame = selected_instance["masks"][0]
-        mask_last_frame = selected_instance["masks"][-1]
-        
-        print(f"\n--- Synthetic Change Prep ---")
-        print(f"Selected instance ID: {instance_id}")
-        print(f"Mask First Frame shape: {mask_first_frame.shape if mask_first_frame is not None else 'None'}")
-        print(f"Mask Last Frame shape: {mask_last_frame.shape if mask_last_frame is not None else 'None'}")
-        print("-----------------------------\n")
+        resized_images = []
+        for img_name in image_names:
+            img_path = os.path.join(cfg.input.project_path, cfg.input.image_folder, seq_id, img_name)
+            img = Image.open(img_path).convert("RGB")
+            resized_img = img.resize((cfg.input.resize_width, cfg.input.resize_height), Image.Resampling.LANCZOS)
+            resized_images.append(resized_img)
 
-    # 4. Clean up SAFELY at the very end of the script
-    sam_pipeline.clear_current_pair()
+        use_sam3 = cfg.input.get("use_sam3")
+        sam_pipeline = SAM3CorrespondencePipeline(use_sam3=use_sam3, device="cuda")
+        
+        # 1. Load entire sequence
+        sam_pipeline.load_image_sequence(resized_images)
+        sam_version = "sam3" if use_sam3 else "sam3.1"
+        
+        classes_to_track = ["buildings", "traffic signs", "cracks", "trash bins", "cross walks"]
+        seq_str = f"{image_names[0].split('.')[0]}_to_{image_names[-1].split('.')[0]}"
+        
+        # NEW: Create a dictionary to store all our tracking results so we don't have to re-run SAM
+        all_tracked_data = {}
+        
+        # 2. Iterate dynamically over classes to track and save 
+        for class_name in classes_to_track:
+            matches = sam_pipeline.track_class_sequence(class_name)
+            
+            # Save the matches into our dictionary for later use
+            all_tracked_data[class_name] = matches
+            
+            print(f"Found {len(matches)} {class_name}.")
+            
+            if len(matches) > 0:
+                clean_name = class_name.replace(" ", "")
+                save_path = os.path.join(
+                    cfg.output.base, 
+                    cfg.output.correspondence_visualization, 
+                    f"{clean_name}_{seq_id}_{seq_str}_{sam_version}.png"
+                )
+                sam_pipeline.visualize_sequence_correspondence(resized_images, matches, save_path=save_path)
+
+        sam_pipeline.clear_current_pair()
     sam_pipeline.shutdown()
 
 
@@ -550,7 +495,7 @@ if __name__ == "__main__":
     # main()
     # augmentation_withoneimage()
     # automated_run_folder()
-    sam3_object_tracking()
+    # sam3_object_tracking()
     # sam3_object_tracking_multiplex()
     # sam3_object_tracking_cubemaps()
-    # sam3_object_tracking_sequence()
+    sam3_object_tracking_sequence()

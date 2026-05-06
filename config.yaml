@@ -29,7 +29,6 @@ input:
   # project_path: "/home/SImany/data_generation_pipeline"
   font_path: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
-  image_folder: "images/"
   # resize_width: 1024
   resize_width: 1536
   resize_height: 640
@@ -49,6 +48,9 @@ input:
   run_mode: "combinatorial"
   
   image_name: "panorama1.jpg"
+  
+  image_folder: "clean_real_changes/"
+  use_sam3 : True # whether to use SAM 3 for segmentation and correspondence, if false uses SAM 3.1
   image_names: 
     # - "image_13.jpg"
     # - "5.jpg"
@@ -61,22 +63,25 @@ input:
     # - "panorama2.jpg"
     # - "panorama3.jpg"
     # - "panorama7.jpg"
-    - "panorama9.jpg"
+    # - "panorama9.jpg"
 
-    
-    
-    # - "panorama6.jpg"
+    # - "panorama5.jpg"
+    # - "panorama3.jpg"
+    # - "panorama4.jpg"
     
     # - "4.jpg"
     # - "2.jpg"
     # - "7.jpg"
+
 
   prompt_seg: "cracks" # cracks, buildings, traffic signs, roads, building under reconstruction
   prompts_seg:
     buildings: "(sky, trees) matching the surrounding context"
     traffic signs: ""
     cracks: ""
-    buildings under reconstruction: "completed building" 
+    # buildings under reconstruction: "completed building" 
+    # trash cans: ""
+    # traffic lights: ""
     # roads:
     #   - "urban road after heavy rain, large pothole filled with water, reflective puddle inside a damaged cavity, cracked and eroded asphalt edges, wet surface, realistic lighting, detailed texture photography"
     #   - "a deep pothole in an asphalt road filled with muddy rainwater, strong shadow gradient, reflective water with sky reflection, broken crumbling asphalt edges, realistic road damage, high resolution"
@@ -129,7 +134,7 @@ augmentation:
 
 output:
   # base: "/mnt/stores/store-DAI/pocs/simany/results_pipeline/"
-  base: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results_v2/"
+  base: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results_sam3_more_examples/"
   segmentation_overlay: "segmentation_overlay/"
   inpainting_results: "inpainting_segmented_sam/"
   panorama_to_perspective: "panorama_to_perspective/"
@@ -142,6 +147,7 @@ output:
   augmentation_masks: "augmentation_masks/"
   correspondence_visualization: "correspondence_visualization/"
   production_ready: "production_ready/"
+  cubemap_tracking: "cubemap_tracking/"
 
 
 

@@ -166,12 +166,12 @@ class SAM3CorrespondencePipeline:
                 if mask_a is None or mask_b is None:
                     continue
                     
-                if mask_b.sum() > 50: 
-                    matched_pairs.append({
-                        "instance_id": obj_id,
-                        "before_mask": mask_a,
-                        "after_mask": mask_b
-                    })
+                # if mask_b.sum() > 50: 
+                matched_pairs.append({
+                    "instance_id": obj_id,
+                    "before_mask": mask_a,
+                    "after_mask": mask_b
+                })
         return matched_pairs
     
     def _extract_sequence_matches(self, clean_outputs):
@@ -198,7 +198,7 @@ class SAM3CorrespondencePipeline:
                     mask = clean_outputs[i][obj_id]
                     
                     # Ensure the mask isn't empty/noise (threshold of 50 pixels)
-                    if mask is not None and mask.sum() > 50:
+                    if mask is not None:   # and mask.sum() > 50:
                         masks.append(mask)
                         valid_sequence = True
                     else:
