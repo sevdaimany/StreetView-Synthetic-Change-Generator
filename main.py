@@ -15,6 +15,8 @@ from SAM3Correspondence import SAM3CorrespondencePipeline
 import py360convert
 from CubemapsTracker import PanoramaTracker
 import matplotlib.pyplot as plt
+import itertools
+
 
 login(os.getenv("HF_TOKEN"))
 logg = logging.getLogger(__name__)
@@ -82,6 +84,9 @@ def augmentation_withoneimage(cfg: DictConfig):
 
 @hydra.main(config_path=".", config_name="config")
 def sam3_object_tracking(cfg: DictConfig):
+    """
+    Track objects in a pair of images using SAM3.
+    """
 
     log_config(cfg)
     create_output_dirs(cfg)
@@ -434,6 +439,9 @@ def automated_run_folder(cfg: DictConfig):
 
 @hydra.main(config_path=".", config_name="config")
 def sam3_object_tracking_sequence(cfg: DictConfig):
+    """
+    Track objects across an entire sequence of images using SAM3.
+    """
     log_config(cfg)
     create_output_dirs(cfg)
 
@@ -491,11 +499,93 @@ def sam3_object_tracking_sequence(cfg: DictConfig):
     sam_pipeline.shutdown()
 
 
+ 
+@hydra.main(config_path=".", config_name="config")
+def sam3_object_tracking_pair_combinations(cfg: DictConfig):
+    """
+    Track objects across all unique pairs of images in a folder using SAM3.
+    """
+
+    log_config(cfg)
+    create_output_dirs(cfg)
+ 
+    images_folder = os.path.join(cfg.input.project_path, cfg.input.image_folder)
+    all_subfolders = [f.path for f in os.scandir(images_folder) if f.is_dir()]
+ 
+    use_sam3 = cfg.input.get("use_sam3")
+    sam_pipeline = SAM3CorrespondencePipeline(use_sam3=use_sam3, device="cuda")
+    sam_version = "sam3" if use_sam3 else "sam3.1"
+    classes_to_track = ["buildings", "traffic signs", "cracks", "trash bins", "cross walks"]
+ 
+    for folder in all_subfolders:
+        print(f"\nProcessing folder: {folder}")
+        seq_id = os.path.basename(folder)
+ 
+        image_names = [f for f in os.listdir(folder) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        image_names.sort()
+        print(f"Found {len(image_names)} images: {image_names}")
+ 
+        # Load and resize all images once
+        resized_images = []
+        for img_name in image_names:
+            img_path = os.path.join(cfg.input.project_path, cfg.input.image_folder, seq_id, img_name)
+            img = Image.open(img_path).convert("RGB")
+            resized_img = img.resize(
+                (cfg.input.resize_width, cfg.input.resize_height),
+                Image.Resampling.LANCZOS,
+            )
+            resized_images.append(resized_img)
+ 
+        # Build all unique pairs of indices (i, j) with i < j
+        all_pairs = list(itertools.combinations(range(len(resized_images)), 2))
+        print(f"Generated {len(all_pairs)} pairs from {len(resized_images)} images.")
+ 
+        # Store all tracked data, keyed by (idx_a, idx_b) then by class name
+        # all_tracked_data = {}
+ 
+        for idx_a, idx_b in all_pairs:
+            img_a = resized_images[idx_a]
+            img_b = resized_images[idx_b]
+ 
+            name_a = image_names[idx_a].split('.')[0]
+            name_b = image_names[idx_b].split('.')[0]
+            pair_str = f"{name_a}_to_{name_b}"
+ 
+            print(f"\n  Processing pair: {pair_str}")
+ 
+            # Load just this pair into the pipeline (reuse sequence API with 2 images)
+            sam_pipeline.load_image_sequence([img_a, img_b])
+ 
+            pair_results = {}
+ 
+            for class_name in classes_to_track:
+                matches = sam_pipeline.track_class(class_name)
+                pair_results[class_name] = matches
+                print(f"    Found {len(matches)} {class_name}.")
+ 
+                if len(matches) > 0:
+                    clean_name = class_name.replace(" ", "")
+                    save_path = os.path.join(
+                        cfg.output.base,
+                        cfg.output.correspondence_visualization,
+                        f"{clean_name}_{seq_id}_{pair_str}_{sam_version}.png",
+                    )
+                    sam_pipeline.visualize_correspondence(
+                        img_a, img_b, matches, save_path=save_path
+                    )
+ 
+            # all_tracked_data[(idx_a, idx_b)] = pair_results
+            sam_pipeline.clear_current_pair()
+ 
+    sam_pipeline.shutdown()
+ 
+
+
 if __name__ == "__main__":
     # main()
     # augmentation_withoneimage()
     # automated_run_folder()
     # sam3_object_tracking()
-    # sam3_object_tracking_multiplex()
     # sam3_object_tracking_cubemaps()
-    sam3_object_tracking_sequence()
+    # sam3_object_tracking_sequence()
+    sam3_object_tracking_pair_combinations()
