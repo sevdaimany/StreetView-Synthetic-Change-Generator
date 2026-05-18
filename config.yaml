@@ -49,7 +49,9 @@ input:
   
   image_name: "panorama1.jpg"
   
-  image_folder: "clean_real_changes/"
+  # image_folder: "clean_real_changes/"
+  image_folder: "diff_sequences/"
+
   use_sam3 : True # whether to use SAM 3 for segmentation and correspondence, if false uses SAM 3.1
   image_names: 
     # - "image_13.jpg"
@@ -134,7 +136,7 @@ augmentation:
 
 output:
   # base: "/mnt/stores/store-DAI/pocs/simany/results_pipeline/"
-  base: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/results_sam3_more_examples/"
+  base: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/experiment_sam3_detectonboth/"
   segmentation_overlay: "segmentation_overlay/"
   inpainting_results: "inpainting_segmented_sam/"
   panorama_to_perspective: "panorama_to_perspective/"
