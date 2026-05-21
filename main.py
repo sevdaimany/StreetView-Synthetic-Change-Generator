@@ -26,16 +26,16 @@ def create_output_dirs(cfg):
     """Utility to create output directories if they don't exist."""
     os.makedirs(cfg.output.base, exist_ok=True)
     os.makedirs(os.path.join(cfg.output.base, cfg.output.correspondence_visualization), exist_ok=True)
-    # os.makedirs(os.path.join(cfg.output.base, cfg.output.segmentation_overlay), exist_ok=True)
-    # os.makedirs(os.path.join(cfg.output.base, cfg.output.inpainting_results), exist_ok=True)
-    # os.makedirs(os.path.join(cfg.output.base, cfg.output.edge_detection_results), exist_ok=True)
-    # os.makedirs(os.path.join(cfg.output.base, cfg.output.red_herring_results), exist_ok=True)
-    # os.makedirs(os.path.join(cfg.output.base, cfg.output.depth_results), exist_ok=True)
-    # os.makedirs(os.path.join(cfg.output.base, cfg.output.inpaited_only_results), exist_ok=True)
-    # os.makedirs(os.path.join(cfg.output.base, cfg.output.augmentation), exist_ok=True)
-    # os.makedirs(os.path.join(cfg.output.base, cfg.output.augmentation_masks), exist_ok=True)
-    # os.makedirs(os.path.join(cfg.output.base, cfg.output.production_ready), exist_ok=True)
-    # os.makedirs(os.path.join(cfg.output.base, cfg.output.cubemap_tracking), exist_ok=True)
+    os.makedirs(os.path.join(cfg.output.base, cfg.output.segmentation_overlay), exist_ok=True)
+    os.makedirs(os.path.join(cfg.output.base, cfg.output.inpainting_results), exist_ok=True)
+    os.makedirs(os.path.join(cfg.output.base, cfg.output.edge_detection_results), exist_ok=True)
+    os.makedirs(os.path.join(cfg.output.base, cfg.output.red_herring_results), exist_ok=True)
+    os.makedirs(os.path.join(cfg.output.base, cfg.output.depth_results), exist_ok=True)
+    os.makedirs(os.path.join(cfg.output.base, cfg.output.inpaited_only_results), exist_ok=True)
+    os.makedirs(os.path.join(cfg.output.base, cfg.output.augmentation), exist_ok=True)
+    os.makedirs(os.path.join(cfg.output.base, cfg.output.augmentation_masks), exist_ok=True)
+    os.makedirs(os.path.join(cfg.output.base, cfg.output.production_ready), exist_ok=True)
+    os.makedirs(os.path.join(cfg.output.base, cfg.output.cubemap_tracking), exist_ok=True)
 
 def log_config(cfg):
     logg.info(f"Configuration:\n{OmegaConf.to_yaml(cfg)}")
@@ -352,10 +352,10 @@ def main(cfg: DictConfig):
                 for prompt, neg_prompt in zip(prompts, neg_prompts):
                     logg.info(f"--- Processing: {img_name} | Prompt: '{prompt}' | Negative Prompt: '{neg_prompt}' ---")
                     img = load_image(img_name, cfg)
-                    # generator.inference(img, img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt, save_all=True)
+                    generator.inference(img, img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt, save_all=True)
             
                     # if you want changing the weather
-                    generator.inference_change_style(img, img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt, save_all=True)
+                    # generator.inference_change_style(img, img_name, prompt_seg, prompt, negative_prompt_inpaint=neg_prompt, save_all=True)
             
             # Scenario B: Lengths differ (or one is length 1) -> Iterate on BOTH (all combinations)
             else:
@@ -582,10 +582,10 @@ def sam3_object_tracking_pair_combinations(cfg: DictConfig):
 
 
 if __name__ == "__main__":
-    # main()
+    main()
     # augmentation_withoneimage()
     # automated_run_folder()
     # sam3_object_tracking()
     # sam3_object_tracking_cubemaps()
     # sam3_object_tracking_sequence()
-    sam3_object_tracking_pair_combinations()
+    # sam3_object_tracking_pair_combinations()

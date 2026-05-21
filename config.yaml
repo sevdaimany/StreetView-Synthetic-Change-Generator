@@ -10,14 +10,14 @@ model:
   # controlnet_canny: "black-forest-labs/FLUX.1-Canny-dev"
   # controlnet_union: "InstantX/FLUX.1-dev-Controlnet-Union" 
 
-  inpainting: "stable-diffusion-v1-5/stable-diffusion-inpainting"
-  # controlnet: "lllyasviel/control_v11p_sd15_inpaint"
-  controlnet_depth: "lllyasviel/sd-controlnet-depth"
-  controlnet_canny: "lllyasviel/sd-controlnet-canny"
-  strength: 0.8 # for inpainting, how much to deviate from the original image, between 0 and 1
+  # inpainting: "stable-diffusion-v1-5/stable-diffusion-inpainting"
+  # # controlnet: "lllyasviel/control_v11p_sd15_inpaint"
+  # controlnet_depth: "lllyasviel/sd-controlnet-depth"
+  # controlnet_canny: "lllyasviel/sd-controlnet-canny"
+  # strength: 0.8 # for inpainting, how much to deviate from the original image, between 0 and 1
 
-  # inpainting: "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"  
-  # vae: "madebyollin/sdxl-vae-fp16-fix"
+  inpainting: "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"  
+  vae: "madebyollin/sdxl-vae-fp16-fix"
   # controlnet_depth: "diffusers/controlnet-depth-sdxl-1.0"
   # controlnet_canny: "diffusers/controlnet-canny-sdxl-1.0"
   
@@ -32,15 +32,15 @@ input:
   # resize_width: 1024
   resize_width: 1536
   resize_height: 640
-  mask_index: 0 # which instance of the prompt_seg class to mask, -1 for random, -2 for largest
+  mask_index: -1 # which instance of the prompt_seg class to mask, -1 for random, -2 for largest
   mask_selection_mode: "single" # "single", "subset" , "biggest", "all"
   
   dilated_mask: true # whether to dilate the mask to include some context around the segmented object
   red_herring: False # whether to add red herrings, should be removed and randomly added in pipeline
   add_pothole: true
 
-  canny: True
-  depth: True
+  canny: False
+  depth: False
   inpaint: False # only for stable diffusion inpainting
   
   # "combinatorial" = test every prompt on every image
@@ -50,10 +50,15 @@ input:
   image_name: "panorama1.jpg"
   
   # image_folder: "clean_real_changes/"
-  image_folder: "diff_sequences/"
+  image_folder: "negative_prompts/"
 
   use_sam3 : True # whether to use SAM 3 for segmentation and correspondence, if false uses SAM 3.1
   image_names: 
+   - "02_to_03_buildings_after.png"
+   - "01_to_02_buildings_after.png"
+   - "02_prev_1_to_03_center_buildings_after.png"
+   - "02_to_03_buildings_after_1.png"
+
     # - "image_13.jpg"
     # - "5.jpg"
     # - "6.jpg"
@@ -76,7 +81,7 @@ input:
     # - "7.jpg"
 
 
-  prompt_seg: "cracks" # cracks, buildings, traffic signs, roads, building under reconstruction
+  prompt_seg: "buildings" # cracks, buildings, traffic signs, roads, building under reconstruction
   prompts_seg:
     buildings: "(sky, trees) matching the surrounding context"
     traffic signs: ""
@@ -102,7 +107,7 @@ input:
     # - "The facade is dismantled. Scaffolding surrounds the building, protective safety netting installed."
     # - "building wrapped in scaffolding"
     # - "building under reconstruction"
-    # - "(sky, trees) matching the surrounding context"
+    - "(sky, trees) matching the surrounding context"
     # - ""
     # - "sky"
     # - "background"
@@ -116,14 +121,14 @@ input:
     # - "late night, very low light"
     # - "same street, foggy weather, low visibility, misty atmosphere"
 
-    - "same street, nighttime"
-    - "same street, heavy snow, overcast sky"
-    - "same street, autumn, fallen leaves on the ground"
+    # - "same street, nighttime"
+    # - "same street, heavy snow, overcast sky"
+    # - "same street, autumn, fallen leaves on the ground"
 
   negative_prompts_inpaint:  # Flux doesnt get negative prompts
     # - "cartoon, painting, warped geometry, blurry"
-    # - "building"
-    - ""
+    - "buildings"
+    # - ""
 
 
 augmentation:
@@ -136,9 +141,9 @@ augmentation:
 
 output:
   # base: "/mnt/stores/store-DAI/pocs/simany/results_pipeline/"
-  base: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/experiment_sam3_detectonboth/"
+  base: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/experiment_negative_prompts/"
   segmentation_overlay: "segmentation_overlay/"
-  inpainting_results: "inpainting_segmented_sam/"
+  inpainting_results: "inpainting/"
   panorama_to_perspective: "panorama_to_perspective/"
   stitching_results: "stitching/"
   edge_detection_results: "edge_detection/"
