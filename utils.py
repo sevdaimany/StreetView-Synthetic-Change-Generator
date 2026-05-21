@@ -5,22 +5,33 @@ import shutil
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import pandas as pd
+import logging
+import os
 
-
-
-def create_output_dirs(cfg):
-    """Utility to create output directories if they don't exist."""
-    os.makedirs(cfg.output.base, exist_ok=True)
-    # os.makedirs(os.path.join(cfg.output.base, cfg.output.segmentation_overlay), exist_ok=True)
-    # os.makedirs(os.path.join(cfg.output.base, cfg.output.inpainting_results), exist_ok=True)
-    # os.makedirs(os.path.join(cfg.output.base, cfg.output.edge_detection_results), exist_ok=True)
-    # os.makedirs(os.path.join(cfg.output.base, cfg.output.red_herring_results), exist_ok=True)
-    # os.makedirs(os.path.join(cfg.output.base, cfg.output.depth_results), exist_ok=True)
-    # os.makedirs(os.path.join(cfg.output.base, cfg.output.inpaited_only_results), exist_ok=True)
-    # os.makedirs(os.path.join(cfg.output.base, cfg.output.augmentation), exist_ok=True)
-    # os.makedirs(os.path.join(cfg.output.base, cfg.output.augmentation_masks), exist_ok=True)
-    os.makedirs(os.path.join(cfg.output.base, cfg.output.production_ready, cfg.output.correspondence_visualization), exist_ok=True)
-    os.makedirs(os.path.join(cfg.output.base, cfg.output.production_ready), exist_ok=True)
+def setup_logger(log_dir_root, city_name):
+    os.makedirs(log_dir_root, exist_ok=True)
+    log_file = os.path.join(log_dir_root, f"{city_name}.log")
+    
+    # Unique logger name per city
+    logger = logging.getLogger(f"Pipeline_{city_name}")
+    logger.setLevel(logging.INFO)
+    
+    # Clear existing handlers to prevent duplicate lines
+    if logger.hasHandlers():
+        logger.handlers.clear()
+    
+    formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
+    
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    
+    # Optional: Print to console
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+    
+    return logger
 
 
 def load_image(image_path, cfg):
@@ -108,8 +119,8 @@ def save_voc_bboxes_and_overlay(image_pil, instances, mask_key, class_name, txt_
         
     overlay_img.save(overlay_path, quality=90)
 
-def check_redundancy(sequence_id, class_name, img_name1, img_name2, cfg):
-    base_dir = os.path.join(cfg.output.base, cfg.output.production_ready, "data", sequence_id)
+def check_redundancy(city_name, sequence_id, class_name, img_name1, img_name2, cfg):
+    base_dir = os.path.join(cfg.output.dir_root, 'pipeline_data', city_name, sequence_id)
     safe_class = class_name.replace(" ", "_")
     pair_id = f"{img_name1.split('.')[0]}_to_{img_name2.split('.')[0]}_{safe_class}"
     check_path = os.path.join(base_dir, f"{pair_id}_meta.json")
