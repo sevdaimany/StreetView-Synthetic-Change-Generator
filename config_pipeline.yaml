@@ -1,0 +1,55 @@
+model:
+  segmentation: "facebook/sam3"
+  depth_estimation: "Intel/dpt-hybrid-midas"
+
+  inpainting: "stable-diffusion-v1-5/stable-diffusion-inpainting"
+  controlnet: "lllyasviel/control_v11p_sd15_inpaint"
+  controlnet_depth: "lllyasviel/sd-controlnet-depth"
+  controlnet_canny: "lllyasviel/sd-controlnet-canny"
+  strength: 0.8
+
+  inpainting_xl: "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"  
+  vae: "madebyollin/sdxl-vae-fp16-fix"
+
+  dap_config_path: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/DAP/config/infer.yaml"
+  dap_load_weights_dir: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/DAP/weights"
+
+
+input:
+  dir_root: "/mnt/stores/store-DAI/pocs/simany/panoramas/"
+  font_path: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+
+  resize_width: 1536
+  resize_height: 640
+  mask_selection_mode: "subset" # "single", "subset" , "biggest", "all"
+
+  canny: true
+  depth: true
+  inpaint: true # only for stable diffusion inpainting
+  
+
+  prompts_seg:
+    buildings: "(sky, trees) matching the surrounding context"
+    traffic signs: ""
+    buildings under reconstruction: "completed building" 
+    traffic lights: ""
+    trash cans: ""
+  
+  prompts_weather: 
+    - "same street, nighttime"
+    - "same street, heavy snow, overcast sky"
+    - "same street, autumn, fallen leaves on the ground"
+
+
+output:
+  # base: "/mnt/stores/store-DAI/pocs/simany/results_pipeline/"
+  dir_root: "/mnt/stores/store-DAI/pocs/simany/pipeline3_test/"
+
+
+
+
+hydra:
+  job_logging:
+    loggers:
+      httpx:
+        level: WARNING
