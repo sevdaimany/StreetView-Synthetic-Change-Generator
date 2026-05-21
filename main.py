@@ -38,7 +38,7 @@ def process_and_save_synthetic_change(
     logger
     ):
     """
-    Extracts masks, runs the inpainting generator, creates visual overlays, 
+    Gets the selected masks from SAM, applies the inpainting generator to create synthetic changes,
     and saves the complete before/after pipeline to disk.
     """
 
@@ -76,30 +76,29 @@ def process_and_save_synthetic_change(
             weather_image_name = img_name2
             prompt_weather = random.choice(prompts_weather)
             img2 = generator.inference_change_style(img_for_weather, weather_image_name, prompt_weather, save_path=viz_dir, save_all=True)
-        logger.info(f"[{city_name} / {sequence_id} / {weather_image_name} ] Applied weather change: '{prompt_weather}' to image '{weather_image_name}'")
-        
+        logger.info(f"[{city_name} / {sequence_id} / {weather_image_name} / {prompt_seg}] Applied weather change: '{prompt_weather}' to image '{weather_image_name}'")
+        logger.info(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}] After generator.inference_change_style: img1 size: {img1.size}, img2 size: {img2.size}")
+
 
     # 2) apply synthetic change
-    inpainted_image, _ = generator.inference(
+    inpainted_image, selected_mask = generator.inference(
         img=img2, 
         image_name=img_name2, 
         prompt_seg=prompt_seg, 
         prompt_inpaint=prompt_inpaint,
         seg_mask=mask_after_pil, 
-        save_path=viz_dir,
-        save_all=True 
     )
     # Standardize sizes
-    logger.info(f"[{city_name} / {sequence_id} / {current_pair}] After generator.inference: img1 size: {img1.size}, img2 size: {img2.size},  inpainted size: {inpainted_image.size}, mask_after size: {mask_after_pil.size}")
+    logger.info(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}] After generator.inference: img1 size: {img1.size}, img2 size: {img2.size},  inpainted size: {inpainted_image.size}, mask_after size: {mask_after_pil.size}")
                     
     target_size = img1.size
     if inpainted_image.size != target_size or mask_after_pil.size != target_size or mask_before_pil.size != target_size:
         print(f"⚠️ Size mismatch detected. Resizing all to {target_size}.")
-        logger.warning(f"[{city_name} / {sequence_id} / {current_pair}] Size mismatch detected. Resizing all to {target_size}.")
+        logger.warning(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}] Size mismatch detected. Resizing all to {target_size}.")
         inpainted_image = inpainted_image.resize(target_size, Image.Resampling.LANCZOS)
         mask_after_pil = mask_after_pil.resize(target_size, Image.Resampling.NEAREST)
         mask_before_pil = mask_before_pil.resize(target_size, Image.Resampling.NEAREST)
-        logger.info( f"[{city_name} / {sequence_id} / {current_pair}] After Size Standardization - img1: {img1.size}, img2: {img2.size}, inpainted: {inpainted_image.size}, mask_before: {mask_before_pil.size}, mask_after: {mask_after_pil.size}")
+        logger.info( f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}] After Size Standardization - img1: {img1.size}, img2: {img2.size}, inpainted: {inpainted_image.size}, mask_before: {mask_before_pil.size}, mask_after: {mask_after_pil.size}")
     mask_after_np = np.array(mask_after_pil)
     mask_before_np = np.array(mask_before_pil)
     
@@ -108,7 +107,7 @@ def process_and_save_synthetic_change(
     
     if "buildings" == prompt_seg.lower():
         verification_status = generator.verify_building_removal(inpainted_image, prompt_seg, mask_after_np)
-        logger.info(f"[{city_name} / {sequence_id} / {current_pair}] SAM Verification: Building was {verification_status.upper()}.")
+        logger.info(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}] SAM Verification: Building was {verification_status.upper()}.")
 
 
 
@@ -147,6 +146,10 @@ def process_and_save_synthetic_change(
                           labels=["Before overlay", "After overlay", "Inpainted"], font_path=cfg.input.font_path)
     grid.save(os.path.join(viz_dir, f"{pair_id}_QC.jpg"), quality=85) # JPG saves space for viz
 
+    # Save inpainting results
+    overlay = generator.overlay_mask(img2, selected_mask)
+    inpainted_name = pair_id + ".png"
+    self.save_inpainted_and_mask(inpainted_image, overlay, save_path=os.path.join(viz_dir, "inpainting", inpainted_name))
 
     # SAVE METADATA
     metadata = {
@@ -211,11 +214,11 @@ def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipel
     adjacent_classes = ["traffic signs", "traffic lights", "trash cans"] # classes that require adjacent pairing logic
     
     for img_name1, img_name2 in adjacent_pairs:
+        current_pair = (img_name1, img_name2)
         try:
             img1 = load_image(os.path.join(sequence_path, img_name1), cfg)
             img2 = load_image(os.path.join(sequence_path, img_name2), cfg)
             sam_pipeline.load_image_pair(img1, img2)
-            current_pair = (img_name1, img_name2)
             
             for class_name in classes:
                 try:
@@ -277,7 +280,7 @@ def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipel
                         prompt_inpaint=prompt_inpaint,
                         logger=logger
                     )
-                    logger.info(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}] Successfully processed {class_name} | {img_name1}")
+                    logger.info(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}] Successfully processed {class_name} | {img_name1} \n")
 
                 except Exception as e:
                     logger.error(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}] Error processing class '{class_name}' for pair {img_name1}-{img_name2}: {e}")

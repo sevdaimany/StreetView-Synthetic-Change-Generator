@@ -419,7 +419,7 @@ class DatasetGenerator:
 
         inpainted_image = self.inpainting(img, full_mask, prompt_inpaint,
                         control_images=control_images, num_controlnets=self.num_controlnets)
-        print(f"After Weather inpainting: img {img.size}, mask {full_mask.size}, inpainted {inpainted_image.size}")
+        # print(f"After Weather inpainting: img {img.size}, mask {full_mask.size}, inpainted {inpainted_image.size}")
 
         # Save inpainting results
         len_prompt_toshow = min(25, len(prompt_inpaint))
@@ -440,12 +440,11 @@ class DatasetGenerator:
             plt.tight_layout()
             plt.savefig(save_path)
             plt.show()
-            print(f"Saved inpainted image to {save_path}")
         return inpainted_image
 
 
 
-    def inference(self, img, image_name, prompt_seg, prompt_inpaint, seg_mask, negative_prompt_inpaint=None, save_path=None, save_all=False):
+    def inference(self, img, image_name, prompt_seg, prompt_inpaint, seg_mask, negative_prompt_inpaint=None):
         
         selected_mask = seg_mask
         selected_mask = self.dilate_mask(selected_mask, radius=15)
@@ -454,14 +453,7 @@ class DatasetGenerator:
         inpainted_image = self.inpainting(img, selected_mask, prompt_inpaint,
                         negative_prompt=negative_prompt_inpaint)
 
-        # Save inpainting results
-        if save_all:
-            overlay = self.overlay_mask(img, selected_mask)
-            inpainted_name = self.inpaint_output_name(image_name, prompt_seg)
-
-            save_path = os.path.join(save_path, "inpainting", inpainted_name)
-            self.save_inpainted_and_mask(inpainted_image, overlay, save_path=save_path)
-
+    
         return inpainted_image, selected_mask
 
     def inpaint_output_name(self, image_name, prompt_seg):
