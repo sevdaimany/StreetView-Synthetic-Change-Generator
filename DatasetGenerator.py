@@ -230,14 +230,15 @@ class DatasetGenerator:
                 mask = (mask * 255).astype(np.uint8)
                 mask = Image.fromarray(mask).convert("L")
             
+            width, height = img.size
             if self.num_controlnets == 0:
                 image = self.inpaint_pipeline(
                 prompt=prompt,
                 negative_prompt=negative_prompt,
                 image=img,
                 mask_image=mask,
-                # width=width,    
-                # height=height,
+                width=width,    
+                height=height,
                 generator=torch.Generator(self.device).manual_seed(0),
                 # output_type="latent" #for augmentation
                 ).images[0]
@@ -743,44 +744,50 @@ class DatasetGenerator:
                 print(f"Saved segmentation overlay to {seg_save_path}")
 
         # Filter masks near borders and select one for inpainting
-        filtered_mask = mask
-        # filtered_mask = self.filter_masks(mask)
-        mask_index = self.cfg.input.mask_index
-        if mask_index == -1:
-            mask_index = random.randint(0, filtered_mask.shape[0] - 1)
-        if mask_index == -2:
-            mask_index = self.select_largest_mask(filtered_mask)
-        print(f"Selected mask index: {mask_index}")
-        selected_mask = filtered_mask[mask_index]
+        # filtered_mask = mask
+        # # filtered_mask = self.filter_masks(mask)
+        # mask_index = self.cfg.input.mask_index
+        # if mask_index == -1:
+        #     mask_index = random.randint(0, filtered_mask.shape[0] - 1)
+        # if mask_index == -2:
+        #     mask_index = self.select_largest_mask(filtered_mask)
+        # print(f"Selected mask index: {mask_index}")
+        # selected_mask = filtered_mask[mask_index]
 
-        if self.cfg.input.add_pothole and prompt_seg == "roads":
-            print("Adding pothole to the mask...")
-            selected_mask = self.get_pothole_sub_mask(selected_mask, img.size)
-        
-        
-        if self.cfg.input.dilated_mask:
-            selected_mask = self.dilate_mask(selected_mask, radius=15)
+        # run on all indexs
+        for mask_index in range(mask.shape[0]):
+            print(f"Processing mask index: {mask_index}")
+            selected_mask = mask[mask_index]
 
-        # generate control images using edge detection and depth estimation for controlnet conditioning
-        control_images = self.generate_control_images(img, selected_mask, image_name, save=save_all)
 
-        # Inpainting
-        inpainted_image = self.inpainting(img, selected_mask, prompt_inpaint,
-                        negative_prompt=negative_prompt_inpaint,
-                        control_images=control_images)
-
-        # Save inpainting results
-        if save_all:
-            overlay = self.overlay_mask(img, selected_mask)
-            inpainted_name = self.inpaint_output_name(self.cfg, image_name, mask_index, prompt_seg, prompt_inpaint, negative_prompt_inpaint)
-
-            save_path = os.path.join(self.cfg.output.base, self.cfg.output.inpainting_results, inpainted_name)
-            self.save_inpainted_and_mask(inpainted_image, overlay, save_path=save_path)
+            if self.cfg.input.add_pothole and prompt_seg == "roads":
+                print("Adding pothole to the mask...")
+                selected_mask = self.get_pothole_sub_mask(selected_mask, img.size)
             
-            save_path = os.path.join(self.cfg.output.base, self.cfg.output.inpaited_only_results, inpainted_name)
-            inpainted_image.save(save_path)
+            
+            if self.cfg.input.dilated_mask:
+                selected_mask = self.dilate_mask(selected_mask, radius=15)
 
-            print(f"Saved inpainted image to {save_path}")
+            # generate control images using edge detection and depth estimation for controlnet conditioning
+            control_images = self.generate_control_images(img, selected_mask, image_name, save=save_all)
+
+            # Inpainting
+            inpainted_image = self.inpainting(img, selected_mask, prompt_inpaint,
+                            negative_prompt=negative_prompt_inpaint,
+                            control_images=control_images)
+
+            # Save inpainting results
+            if save_all:
+                overlay = self.overlay_mask(img, selected_mask)
+                inpainted_name = self.inpaint_output_name(self.cfg, image_name, mask_index, prompt_seg, prompt_inpaint, negative_prompt_inpaint)
+
+                save_path = os.path.join(self.cfg.output.base, self.cfg.output.inpainting_results, inpainted_name)
+                self.save_inpainted_and_mask(inpainted_image, overlay, save_path=save_path)
+                
+                save_path = os.path.join(self.cfg.output.base, self.cfg.output.inpaited_only_results, inpainted_name)
+                inpainted_image.save(save_path)
+
+                print(f"Saved inpainted image to {save_path}")
 
         # testing segmentation on inpainted image
         # after_mask = self.segment(inpainted_image, prompt_seg)
