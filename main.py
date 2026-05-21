@@ -287,7 +287,7 @@ def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipel
                     logger.error(traceback.format_exc())
 
         except Exception as e:
-            logger.error(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}] Error processing pair {img_name1}-{img_name2}: {e}")
+            logger.error(f"[{city_name} / {sequence_id} / {current_pair}] Error processing pair {img_name1}-{img_name2}: {e}")
             logger.error(traceback.format_exc())
         finally:
             sam_pipeline.clear_current_pair()
