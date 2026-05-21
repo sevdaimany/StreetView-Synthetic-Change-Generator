@@ -149,7 +149,7 @@ def process_and_save_synthetic_change(
     # Save inpainting results
     overlay = generator.overlay_mask(img2, selected_mask)
     inpainted_name = pair_id + ".png"
-    self.save_inpainted_and_mask(inpainted_image, overlay, save_path=os.path.join(viz_dir, "inpainting", inpainted_name))
+    generator.save_inpainted_and_mask(inpainted_image, overlay, save_path=os.path.join(viz_dir, "inpainting", inpainted_name))
 
     # SAVE METADATA
     metadata = {
