@@ -1,129 +1,52 @@
+import os
+import gc
 import cv2
-import numpy as np
+import yaml
 import random
 import math
-# import Panorama
 import torch
+import numpy as np
+import matplotlib 
 from PIL import Image
 from transformers import Sam3Model, Sam3Processor
 import matplotlib.pyplot as plt
-import matplotlib 
-from diffusers import FluxFillPipeline
-import gc
-from diffusers import ControlNetModel, StableDiffusionControlNetInpaintPipeline, StableDiffusionInpaintPipeline, StableDiffusionXLControlNetInpaintPipeline, StableDiffusionXLInpaintPipeline, AutoencoderKL
-from diffusers.utils import  make_image_grid
-from transformers import DPTForDepthEstimation, DPTImageProcessor
-from diffusers import FluxControlInpaintPipeline, FluxMultiControlNetModel, FluxControlNetModel, FluxControlPipeline, DiffusionPipeline
-import os
-from PIL import ImageFilter
-
+from diffusers import ControlNetModel, StableDiffusionControlNetInpaintPipeline, StableDiffusionXLInpaintPipeline, AutoencoderKL
+import DAP.test.infer as DAP_infer 
+from DAP.test.infer import load_model as DAP_load_model
+from scipy.ndimage import gaussian_filter
 
 class DatasetGenerator:
-    def __init__(self, cfg):
+    def __init__(self, cfg, device):
         '''  
         Initializes the dataset generator by loading the necessary models and setting up the environment.
         '''
-        # self.cam = Panorama()
-        self.device  = cfg.device
+        self.device  = device
         self.segmodel = Sam3Model.from_pretrained(cfg.model.segmentation)
         self.segprocessor = Sam3Processor.from_pretrained(cfg.model.segmentation)
-        self.use_flux = "FLUX" in cfg.model.inpainting
-        self.use_xl = "xl" in cfg.model.inpainting
         self.cfg = cfg
         self.num_controlnets = int(cfg.input.depth) + int(cfg.input.canny) + int(cfg.input.inpaint)
 
-        if self.use_flux:
-            if self.num_controlnets == 0:
-                self.inpaint_pipeline = FluxFillPipeline.from_pretrained(cfg.model.inpainting, torch_dtype=torch.bfloat16).to(self.device)
-            else:
-                controlnet_depth = FluxControlPipeline.from_pretrained(cfg.model.controlnet_depth, torch_dtype=torch.bfloat16)  
-                controlnet_canny = FluxControlPipeline.from_pretrained(cfg.model.controlnet_canny, torch_dtype=torch.bfloat16)
-                self.inpaint_pipeline = FluxControlInpaintPipeline.from_pretrained(cfg.model.inpainting,
-                        controlnet=[controlnet_depth, controlnet_canny],
-                        torch_dtype=torch.bfloat16).to(self.device)
-    
-            # self.inpaint_pipeline.enable_model_cpu_offload(device=self.device) 
-    
-        elif self.use_xl:
-            if self.num_controlnets == 0:
-                vae = AutoencoderKL.from_pretrained(cfg.model.vae, torch_dtype=torch.float16)
-                self.inpaint_pipeline = StableDiffusionXLInpaintPipeline.from_pretrained(
-                    cfg.model.inpainting,
-                    vae=vae,
-                    torch_dtype=torch.float16,
-                    variant="fp16")
-                if cfg.augmentation.refiner:
-                    self.refiner = DiffusionPipeline.from_pretrained(
-                        "stabilityai/stable-diffusion-xl-refiner-1.0",
-                        text_encoder_2=self.inpaint_pipeline.text_encoder_2,
-                        vae=self.inpaint_pipeline.vae,
-                        torch_dtype=torch.float16,
-                        use_safetensors=True,
-                        variant="fp16",
-                    )
-                    self.refiner.enable_model_cpu_offload(device=self.device) 
-                self.inpaint_pipeline.enable_model_cpu_offload(device=self.device) 
-            else:
-                controllers = self.controlnet_models()
-                vae = AutoencoderKL.from_pretrained(cfg.model.vae, torch_dtype=torch.float16)
-                self.inpaint_pipeline = StableDiffusionXLControlNetInpaintPipeline.from_pretrained(
-                        cfg.model.inpainting,
-                        controlnet=controllers,
-                        vae=vae,
-                        torch_dtype=torch.float16,
-                        variant="fp16")
-                self.inpaint_pipeline.enable_model_cpu_offload(device=self.device) 
+        # SD XL
+        vae = AutoencoderKL.from_pretrained(cfg.model.vae, torch_dtype=torch.float16)
+        self.inpaint_pipeline_xl = StableDiffusionXLInpaintPipeline.from_pretrained(
+            cfg.model.inpainting_xl,
+            vae=vae,
+            torch_dtype=torch.float16,
+            variant="fp16")
+        self.inpaint_pipeline_xl.enable_model_cpu_offload(device=self.device) 
 
-        else:
-            if self.num_controlnets == 0:
-                self.inpaint_pipeline = StableDiffusionInpaintPipeline.from_pretrained(
-                    cfg.model.inpainting,
-                    torch_dtype=torch.float16,
-                    use_safetensors=True,
-                    variant="fp16")
-                self.inpaint_pipeline.enable_model_cpu_offload(device=self.device) 
-            else:
-                controllers = self.controlnet_models()
-                self.inpaint_pipeline = StableDiffusionControlNetInpaintPipeline.from_pretrained(
-                        cfg.model.inpainting,
-                        controlnet=controllers,
-                        torch_dtype=torch.float16,
-                        use_safetensors=True,
-                        variant="fp16")
-                self.inpaint_pipeline.enable_model_cpu_offload(device=self.device) 
+        # SD 1.5
+        controllers = self.controlnet_models()
+        self.inpaint_pipeline = StableDiffusionControlNetInpaintPipeline.from_pretrained(
+                cfg.model.inpainting,
+                controlnet=controllers,
+                torch_dtype=torch.float16,
+                use_safetensors=True,
+                variant="fp16")
+        self.inpaint_pipeline.enable_model_cpu_offload(device=self.device)
 
-        if cfg.input.depth:
-            self.depth_processor = DPTImageProcessor.from_pretrained(cfg.model.depth_estimation)
-            self.depth_model = DPTForDepthEstimation.from_pretrained(cfg.model.depth_estimation,
-                use_safetensors=True).to(self.device)
+        self.depth_predictor = self.DAP_depth_estimation() 
 
-    def refine_novel_view(self, warped_img, valid_mask, prompt):
-        """
-        Takes the mathematically warped image and uses SDXL 
-        to synthesize a photorealistic, artifact-free novel view.
-        """
-        warped_cv = np.array(warped_img)
-        valid_mask_cv = np.array(valid_mask) # 255 = valid, 0 = hole
-        raw_holes_mask = cv2.bitwise_not(valid_mask_cv) # (Now: 255 = holes/noise, 0 = valid image)
-
-        # B. Clean the image: Fix the image's micro-holes using fast classical inpainting (Telea).
-        cleaned_warped_cv = cv2.inpaint(warped_cv, raw_holes_mask, inpaintRadius=1, flags=cv2.INPAINT_TELEA)
-
-        # C. Clean the mask: Morphological OPENING
-        # This completely ERASES the tiny scattered noise, leaving only the large camera-movement holes.
-        kernel_small = np.ones((3, 3), np.uint8)
-        clean_sdxl_mask = cv2.morphologyEx(raw_holes_mask, cv2.MORPH_OPEN, kernel_small)
-
-        # D. Dilate the surviving large holes so SDXL can blend them smoothly
-        kernel_large = np.ones((7, 7), np.uint8) 
-        dilated_sdxl_mask = cv2.dilate(clean_sdxl_mask, kernel_large, iterations=1)
-
-        # Convert back to PIL for SDXL
-        final_warped_img = Image.fromarray(cleaned_warped_cv)
-        final_sdxl_mask = Image.fromarray(dilated_sdxl_mask)
-        final_inpainted_img = self.inpainting(final_warped_img, final_sdxl_mask, prompt)
-        
-        return final_inpainted_img, final_sdxl_mask
 
     def controlnet_models(self):
         models = []
@@ -138,43 +61,14 @@ class DatasetGenerator:
             models.append(controlnet_mask)
         return models
 
-    def segment(self, img, prompt):
-        """Generates a segmentation mask for the given image and prompt using the SAM model."""
 
-        self.segmodel.to(self.device)
-
-        inputs = self.segprocessor(images=img, text=prompt, return_tensors="pt").to(self.device)
-
-        with torch.no_grad():
-            outputs = self.segmodel(**inputs)
-
-        results = self.segprocessor.post_process_instance_segmentation(
-                    outputs,
-                    threshold=0.5,
-                    mask_threshold=0.5,
-                    target_sizes=inputs.get("original_sizes").tolist()
-                )[0]
-
-        self.segmodel.to("cpu")
-        self.flush()
-
-        return results["masks"]
-    
-    def control_modes(self):
-        modes = []
-        if self.cfg.input.depth:
-            modes.append(2)
-        if self.cfg.input.canny:
-            modes.append(0)
-        return modes
-
-    def inpainting(self, img, mask, prompt, control_images=None, negative_prompt=""):
+    def inpainting(self, img, mask, prompt, control_images=None, negative_prompt="", num_controlnets=0):
         """Inpaints the masked region of an image using the FluxFillPipeline."""
-        if self.num_controlnets == 2: # both depth and canny
+        if num_controlnets == 2: # both depth and canny
                 controlnet_conditioning_scale = [0.85, 0.65]  # [depth, canny] tune
                 control_guidance_start = [0.0, 0.0]
                 control_guidance_end   = [1.0, 1.0]
-        if self.num_controlnets == 3:
+        if num_controlnets == 3:
                 controlnet_conditioning_scale = [0.55, 0.55, 0.85]  # [depth, canny, inpaint_mask] tune
                 control_guidance_start = [0.0, 0.0, 0.0]
                 control_guidance_end   = [1.0, 1.0, 1.0]
@@ -184,88 +78,61 @@ class DatasetGenerator:
                 control_guidance_end   = 1.0
 
 
-        if self.use_flux:
-            if isinstance(mask, torch.Tensor):
-                mask = mask.cpu().float()
+        if isinstance(mask, torch.Tensor):
+            mask = mask.squeeze().detach().cpu().numpy()
+            mask = (mask * 255).astype(np.uint8)
+            mask = Image.fromarray(mask).convert("L")
 
-            if self.num_controlnets == 0:
-                image = self.inpaint_pipeline(
-                image=img,
-                prompt=prompt,
-                mask_image=mask,
-                generator=torch.manual_seed(0)
+        if num_controlnets == 0: # SDXL without ControlNet conditioning
+            image = self.inpaint_pipeline_xl(
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            image=img,
+            mask_image=mask,
+            generator=torch.Generator(self.device).manual_seed(0),
             ).images[0]
-            else:
-                image = self.inpaint_pipeline(
-                    image=img,
-                    prompt=prompt,
-                    mask_image=mask,
-                    control_image=control_images,
-                    # negative_prompt=negative_prompt,
-                    # control_mode=self.control_modes(),
-                    # generator=torch.Generator(self.device).manual_seed(0)
-                    generator=torch.manual_seed(0)
-                ).images[0]
 
-        else:
-            if isinstance(mask, torch.Tensor):
-                mask = mask.squeeze().detach().cpu().numpy()
-                mask = (mask * 255).astype(np.uint8)
-                mask = Image.fromarray(mask).convert("L")
-
-            width, height = img.size
-            if self.num_controlnets == 0:
-                image = self.inpaint_pipeline(
+        else:   # SD 1.5 with ControlNet conditioning
+            image = self.inpaint_pipeline(
                 prompt=prompt,
                 negative_prompt=negative_prompt,
                 image=img,
                 mask_image=mask,
-                width=width,    
-                height=height,
+                strength=self.cfg.model.strength if hasattr(self.cfg.model, 'strength') else 1.0, # default 1.0
+                control_image=control_images,
+                controlnet_conditioning_scale=controlnet_conditioning_scale,
+                control_guidance_start=control_guidance_start,
+                control_guidance_end=control_guidance_end,
                 generator=torch.Generator(self.device).manual_seed(0),
-                # output_type="latent" #for augmentation
-                ).images[0]
-
-                if self.cfg.augmentation.refiner:
-                    refined_image = self.refiner(prompt=prompt, image=image[None, :]).images[0]
-                    # Blur the mask slightly so the transition between original and generated is seamless
-                    blend_mask = mask.filter(ImageFilter.GaussianBlur(radius=3))
-                    
-                    # Image.composite(foreground, background, mask), Where the mask is white, it uses the refined_image. 
-                    # Where the mask is black, it strictly uses the original_warped_img!
-                    image = Image.composite(refined_image, img, blend_mask)
-            else:   
-                image = self.inpaint_pipeline(
-                    prompt=prompt,
-                    negative_prompt=negative_prompt,
-                    image=img,
-                    mask_image=mask,
-                    control_image=control_images,
-                    controlnet_conditioning_scale=controlnet_conditioning_scale,
-                    control_guidance_start=control_guidance_start,
-                    control_guidance_end=control_guidance_end,
-                    generator=torch.Generator(self.device).manual_seed(0),
-                ).images[0]
+            ).images[0]
 
         self.flush()
         return image
 
-    def generate_control_images(self, img, mask, image_name, save=False):
+    def generate_control_images(self, img, mask, image_name, save_path, save=False):
         control_images = []
         if self.cfg.input.depth:
             control_image = self.make_depth_control(img)
             if save:
-                control_image.save(os.path.join(self.cfg.output.base, self.cfg.output.depth_results, f"{image_name.split('.')[0]}_depth.png"))
+                save_path = os.path.join(save_path, "depth", f"{image_name.split('.')[0]}.png")
+                plt.figure(figsize=(10, 5))
+                plt.imshow(control_image, cmap='magma_r')
+                plt.colorbar(label='Depth')
+                plt.title('Depth Map Image 1')
+                plt.axis('off')
+                plt.savefig(save_path)
             control_images.append(control_image)
 
         if self.cfg.input.canny:
             control_image = self.make_canny_control(img)
             if save:
-                control_image.save(os.path.join(self.cfg.output.base, self.cfg.output.edge_detection_results, f"{image_name.split('.')[0]}_canny.png"))
+                control_image.save(os.path.join(save_path, "edge_detection", f"{image_name.split('.')[0]}.png"))
             control_images.append(control_image)
 
         if self.cfg.input.inpaint:
             control_image = self.make_inpaint_condition(img, mask)
+            if save:
+                control_image.save(os.path.join(save_path, "inpaint_control", f"{image_name.split('.')[0]}.png"))
             control_images.append(control_image)
         return control_images   
 
@@ -304,51 +171,29 @@ class DatasetGenerator:
         if d8.ndim == 2:
             d8 = np.stack([d8, d8, d8], axis=-1)
         return Image.fromarray(d8)
+
+    def DAP_depth_estimation(self):
+        config_path = self.cfg.model.dap_config_path
+        with open(config_path, "r") as f:
+            config = yaml.load(f, Loader=yaml.FullLoader)
+            print("DAP Config loaded.")
+
+        config["load_weights_dir"] = self.cfg.model.dap_load_weights_dir
+        model, _ = DAP_load_model(config)
+        return model
         
     def make_depth_control(self, rgb_pil):
-        
-        self.depth_model.eval()
-        img = rgb_pil.convert("RGB")
-        inputs = self.depth_processor(images=img, return_tensors="pt").to(self.device)
-
-        with torch.no_grad():
-            outputs = self.depth_model(**inputs)
-            predicted_depth = outputs.predicted_depth  # [1, H, W]
-
-        # Resize depth to original size
-        depth = torch.nn.functional.interpolate(
-            predicted_depth.unsqueeze(1),
-            size=img.size[::-1],  # (H, W)
-            mode="bicubic",
-            align_corners=False,
-        ).squeeze().cpu().numpy()
-
-        return self.normalize_depth_to_8bit(depth)
+        depth = torch.from_numpy(DAP_infer.infer_raw(self.depth_predictor, self.device, np.array(rgb_pil))).cpu().numpy()
+        depth = self.normalize_depth_to_8bit(depth)
+        return depth
 
     def dilate_mask(self, mask, radius=8):
         """Often improves seams: dilate mask a bit so model repaints edges cleanly."""
-        if isinstance(mask, torch.Tensor):
-            # Convert tensor to numpy and scale to 0-255
-            m = (mask.cpu().numpy() * 255).astype(np.uint8)
-        else:
-            # Assume it's already a numpy array
-            m = np.array(mask).astype(np.uint8)
-
+        m = np.array(mask.cpu().numpy().astype(np.uint8) * 255)
         k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (radius, radius))
         m = cv2.dilate(m, k, iterations=1)
         return Image.fromarray(m, mode="L")
-    
-    def select_largest_mask(self, masks):
-        """
-        Select the largest mask (by pixel area) from a stack of masks.
-        """
-        if masks.numel() == 0:
-            return None
 
-        areas = masks.flatten(1).sum(dim=1)
-        largest_idx = torch.argmax(areas)
-
-        return largest_idx
 
     def flush(self):
         gc.collect()
@@ -401,154 +246,215 @@ class DatasetGenerator:
         plt.show()
 
 
-    def filter_masks(self, masks, remove_borders=True, border_margin=10):
-            """
-            Filters masks based on criteria.
-            Args:
-                masks: Tensor [N, H, W]
-                remove_borders: If True, removes masks that touch the image edges.
-            """
-            if masks is None or masks.shape[0] == 0:
-                return []
-
-            valid_indices = []
-            h, w = masks.shape[1], masks.shape[2]
-
-            for i, mask in enumerate(masks):
-                mask_np = mask.cpu().numpy().astype(np.uint8)
-                
-                # Criterion 1: Border Check
-                if remove_borders:
-                    # Check if any pixel in the border margin is True
-                    top = np.any(mask_np[:border_margin, :])
-                    bottom = np.any(mask_np[h-border_margin:, :])
-                    left = np.any(mask_np[:, :border_margin])
-                    right = np.any(mask_np[:, w-border_margin:])
-                    
-                    if top or bottom or left or right:
-                        continue # Skip this mask
-
-                # # Criterion 2: Minimum Area (avoid single pixel noise)
-                # if np.sum(mask_np) < 100: 
-                #     continue
-
-                valid_indices.append(i)
-
-            if not valid_indices:
-                return None
-                
-            return masks[valid_indices]
-
-    def get_pothole_sub_mask(self, road_mask, img_size):
-        width, height = img_size
-        
-        # road_mask was 0.0-1.0 floats or booleans. -> scaled to 0-255
-        road_arr = road_mask.cpu().numpy()
-        mask_np = (road_arr > 0).astype(np.uint8) * 255
-        
-        coords = np.argwhere(mask_np > 0)
-        if len(coords) == 0:
-            return road_mask
-        
-        # Pick a random point on the road
-        center_idx = np.random.randint(len(coords))
-        center_y, center_x = coords[center_idx]
-        
-        # pothole_w = int(width * 0.06) 
-        # pothole_h = int(height * 0.02)
-        
-        pothole_w = int(width * 0.08) 
-        pothole_h = int(height * 0.04)
-
-        pothole_mask = np.zeros_like(mask_np)
-        
-        # (center_x, center_y), (axes_width, axes_height), angle, startAngle, endAngle, color, thickness
-        cv2.ellipse(pothole_mask, (center_x, center_y), (pothole_w, pothole_h), 0, 0, 360, 255, -1)
-        
-        # Both masks are now 0-255
-        final_mask = cv2.bitwise_and(pothole_mask, mask_np)
-        
-        # Convert back to 0.0 - 1.0 float scale for the PyTorch Diffusers pipeline
-        final_mask = (final_mask / 255.0).astype(np.float32)
+    def _to_numpy(self, tensor_or_array):
+        """Safely convert tensor (any device) or array to numpy."""
+        if isinstance(tensor_or_array, torch.Tensor):
+            return tensor_or_array.detach().cpu().numpy()
+        return np.array(tensor_or_array)
     
-        return torch.from_numpy(final_mask).to(self.device)
-
-    def inference(self, img, image_name, prompt_seg, prompt_inpaint, seg_mask=None, negative_prompt_inpaint=None, save_all=False):
+    def sam_weather_mask(self, img, image_name, save_path=None):
+        """
+        Generates a semantic-aware inpainting mask for weather/lighting transfer.
+        Uses SAM3 with text prompts per semantic region.
         
-        # Segmentation and Mask Generation
-        if seg_mask is not None:
-            selected_mask = seg_mask
+        Returns:
+            PIL Image (mode "L"): mask where
+                255 = regenerate (sky, road, vegetation)
+                80  = subtle change (buildings)
+                0   = preserve (vehicles, people, signs)
+        """
+        self.segmodel.to(self.device)
+
+        img_size = img.size  # (W, H)
+        mask_array = np.full((img_size[1], img_size[0]), -1, dtype=np.float32)
+
+        # Define semantic groups and their mask intensities
+        region_config = [
+            (["buildings", "walls", "Billboards", "vehicles"], 80),
+            (["traffic signs", "pole", "traffic lights"], 0),
+            (["trash cans"], 0)
+            ]
+
+        for prompts, mask_value in region_config:
+            class_mask = np.zeros((img_size[1], img_size[0]), dtype=bool)
+            
+            # Query each specific noun phrase individually
+            for prompt in prompts:
+                masks = self._query_sam(img, prompt)
+                if masks is None or len(masks) == 0:
+                    continue
+                
+                # Merge all instance masks for this prompt
+                for m in masks:
+                    m_np = self._to_numpy(m)
+                    
+                    # FIX 3: Safe PIL resizing for boolean arrays (Safety net)
+                    if m_np.shape != (img_size[1], img_size[0]):
+                        print(f"Resizing mask for prompt '{prompt}' from {m_np.shape} to {img_size[::-1]}")
+                        m_img = Image.fromarray((m_np * 255).astype(np.uint8))
+                        m_resized = np.array(m_img.resize(img_size, Image.NEAREST)) > 127
+                    else:
+                        m_resized = m_np.astype(bool)
+                        
+                    class_mask |= m_resized
+
+            # Priority logic: Lower mask_value wins (preserve > change).
+            # Update only if the pixel is unset (-1) or the new value is more conservative.
+            update_region = class_mask & (
+                (mask_array == -1) | (mask_value < mask_array)
+            )
+            mask_array[update_region] = mask_value
+
+        self.segmodel.to("cpu")
+
+        mask_array[mask_array == -1] = 255
+
+        # Smooth mask edges to avoid hard seams
+        mask_smoothed = gaussian_filter(mask_array, sigma=3)
+        mask_smoothed = np.clip(mask_smoothed, 0, 255).astype(np.uint8)
+
+        result_mask = Image.fromarray(mask_smoothed, mode="L")
+
+        if save_path:
+            result_mask.save(os.path.join(save_path, "weather" ,  f"{image_name.split('.')[0]}_mask.png"))
+            print(f"Saved weather mask to {save_path}")
+
+        return result_mask
+    
+    def _query_sam(self, img, prompt):
+        """
+        Single SAM3 query for one text prompt.
+        Returns list of binary mask tensors, or None.
+        """
+        inputs = self.segprocessor(
+            images=img,
+            text=prompt,
+            return_tensors="pt"
+        ).to(self.device)
+
+        with torch.no_grad():
+            outputs = self.segmodel(**inputs)
+
+        target_sizes = [list(img.size[::-1])]  # PIL (W, H) -> Target (H, W)
+
+        results = self.segprocessor.post_process_instance_segmentation(
+            outputs,
+            threshold=0.35,  
+            mask_threshold=0.4,
+            target_sizes=target_sizes
+        )
+
+        if not results or len(results[0]["masks"]) == 0:
+            return None
+
+        return results[0]["masks"]
+    
+    def segment(self, img, prompt):
+        """Generates a segmentation mask for the given image and prompt using the SAM model."""
+
+        self.segmodel.to(self.device)
+
+        inputs = self.segprocessor(images=img, text=prompt, return_tensors="pt").to(self.device)
+
+        with torch.no_grad():
+            outputs = self.segmodel(**inputs)
+
+        results = self.segprocessor.post_process_instance_segmentation(
+                    outputs,
+                    threshold=0.5,
+                    mask_threshold=0.5,
+                    target_sizes=inputs.get("original_sizes").tolist()
+                )[0]
+
+        self.segmodel.to("cpu")
+        self.flush()
+
+        return results["masks"]
+    
+    def verify_building_removal(self, inpainted_image, prompt_seg, mask_after_np):
+        new_building_instances = self.segment(inpainted_image, prompt_seg)
+        verification_status = None
+
+        if len(new_building_instances) == 0:
+            verification_status = "Removed"
         else:
-            mask = self.segment(img, prompt_seg)
-            if mask.shape[0] == 0:
-                print(f"No valid masks found for prompt '{prompt_seg}' in image '{image_name}'. Skipping inpainting.")
-                return img, None
-            print(f"Generated mask shape: {mask.shape}")
-            if save_all:
-                overlay = self.overlay_mask(img, mask)
-                seg_save_path = os.path.join(self.cfg.output.base, self.cfg.output.segmentation_overlay, f"{os.path.basename(image_name).split('.')[0]}_{prompt_seg}_{self.cfg.model.segmentation.split('/')[-1]}.png") 
-                overlay.save(seg_save_path)
-                print(f"Saved segmentation overlay to {seg_save_path}")
+            is_replaced = False
+            painted_area = np.sum(mask_after_np > 0)
+            
+            # Check if any new building overlaps with the exact area we painted
+            for new_inst in new_building_instances:
+                # Assuming the single-image mask is stored under a key like 'mask'
+                new_mask = np.array(new_inst.cpu().numpy()) > 0 
+                
+                # Find the intersecting pixels (logical AND)
+                overlap = np.logical_and(new_mask, mask_after_np > 0)
+                overlap_pixels = np.sum(overlap)
+                
+                # If a newly found building covers more than 30% of the area we just painted,
+                # SDXL generated a new building instead of removing it.
+                if overlap_pixels > (0.30 * painted_area):
+                    is_replaced = True
+                    break # No need to check other buildings
+                    
+            verification_status = "Replaced" if is_replaced else "Removed"
+        return verification_status
+        
+    def inference_change_style(self, img, image_name, prompt_inpaint, save_path=None, save_all=False):
 
-            # Filter masks near borders and select one for inpainting
-            filtered_mask = mask
-            # filtered_mask = self.filter_masks(mask)
-            mask_index = self.cfg.input.mask_index
-            if mask_index == -1:
-                mask_index = random.randint(0, filtered_mask.shape[0] - 1)
-            if mask_index == -2:
-                mask_index = self.select_largest_mask(filtered_mask)
-            print(f"Selected mask index: {mask_index}")
-            selected_mask = filtered_mask[mask_index]
+
+        full_mask = self.sam_weather_mask(img, image_name, save_path=save_path)
+        
+        control_images = self.generate_control_images(img, full_mask, image_name, save_path, save=save_all)
+
+        inpainted_image = self.inpainting(img, full_mask, prompt_inpaint,
+                        control_images=control_images, num_controlnets=self.num_controlnets)
+        print(f"After inpainting: img {img.size}, mask {full_mask.size}, inpainted {inpainted_image.size}")
+
+        # Save inpainting results
+        len_prompt_toshow = min(25, len(prompt_inpaint))
+        inpainted_name = f"{image_name.split('.')[0]}_{prompt_inpaint[:len_prompt_toshow]}.png"
+
+        if save_all:
+            save_path = os.path.join(save_path, "weather", inpainted_name)
+            fig, axes = plt.subplots(1, 2, figsize=(20, 12))
+        
+            axes[0].imshow(img)
+            axes[0].set_title("Original Image")
+            axes[0].axis("off")
+
+            axes[1].imshow(inpainted_image)
+            axes[1].set_title("Inpainted Image")
+            axes[1].axis("off")
+            plt.suptitle(f"Prompt: {prompt_inpaint}", fontsize=16)
+            plt.tight_layout()
+            plt.savefig(save_path)
+            plt.show()
+            print(f"Saved inpainted image to {save_path}")
+        return inpainted_image
 
 
+
+    def inference(self, img, image_name, prompt_seg, prompt_inpaint, seg_mask, negative_prompt_inpaint=None, save_path=None, save_all=False):
+        
+        selected_mask = seg_mask
         selected_mask = self.dilate_mask(selected_mask, radius=15)
-
-        # generate control images using edge detection and depth estimation for controlnet conditioning
-        control_images = self.generate_control_images(img, selected_mask, image_name, save=save_all)
 
         # Inpainting
         inpainted_image = self.inpainting(img, selected_mask, prompt_inpaint,
-                        negative_prompt=negative_prompt_inpaint,
-                        control_images=control_images)
+                        negative_prompt=negative_prompt_inpaint)
 
         # Save inpainting results
         if save_all:
             overlay = self.overlay_mask(img, selected_mask)
-            inpainted_name = self.inpaint_output_name(self.cfg, image_name, mask_index, prompt_seg, prompt_inpaint, negative_prompt_inpaint)
+            inpainted_name = self.inpaint_output_name(image_name, prompt_seg)
 
-            save_path = os.path.join(self.cfg.output.base, self.cfg.output.inpainting_results, inpainted_name)
+            save_path = os.path.join(save_path, "inpainting", inpainted_name)
             self.save_inpainted_and_mask(inpainted_image, overlay, save_path=save_path)
-            
-            save_path = os.path.join(self.cfg.output.base, self.cfg.output.inpaited_only_results, inpainted_name)
-            inpainted_image.save(save_path)
-
-            print(f"Saved inpainted image to {save_path}")
 
         return inpainted_image, selected_mask
 
-    def inpaint_output_name(self, cfg, image_name, mask_index, prompt_seg, prompt_inpaint, negative_prompt_inpaint=None):
-        model = ""
-        if self.use_flux:
-            model = "flux"
-        elif self.use_xl:
-            model = "sdxl"
-        else:
-            model = "sd"
+    def inpaint_output_name(self, image_name, prompt_seg):
 
-        len_neg_prompt_toshow = min(20, len(negative_prompt_inpaint)) if negative_prompt_inpaint else 0
-        len_prompt_toshow = min(20, len(prompt_inpaint)) if prompt_inpaint else 0
-        neg_prompt_part = negative_prompt_inpaint[:len_neg_prompt_toshow] if negative_prompt_inpaint else "NoPrompt"
-        prompt_part = prompt_inpaint[:len_prompt_toshow] if prompt_inpaint else "PosNoPrompt"
-        
-        inpainted_name = f"{image_name.split('.')[0]}idx{mask_index}_{prompt_seg}_{prompt_part}_Neg{neg_prompt_part}_{model}"
-        if self.cfg.input.canny:
-            inpainted_name += "_canny"
-        if self.cfg.input.depth:
-            inpainted_name += "_depth"
-        if self.cfg.input.inpaint:
-            inpainted_name += "_inpaint"
-        if self.cfg.input.dilated_mask:
-            inpainted_name += "_dilated"
+        inpainted_name = f"{image_name.split('.')[0]}_{prompt_seg}"
         inpainted_name += ".png"
         return inpainted_name
