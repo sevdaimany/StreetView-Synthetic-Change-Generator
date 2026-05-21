@@ -83,12 +83,15 @@ class DatasetGenerator:
             mask = (mask * 255).astype(np.uint8)
             mask = Image.fromarray(mask).convert("L")
 
+        width, height = img.size
         if num_controlnets == 0: # SDXL without ControlNet conditioning
             image = self.inpaint_pipeline_xl(
             prompt=prompt,
             negative_prompt=negative_prompt,
             image=img,
             mask_image=mask,
+            width=width,    
+            height=height,
             generator=torch.Generator(self.device).manual_seed(0),
             ).images[0]
 
@@ -98,6 +101,8 @@ class DatasetGenerator:
                 negative_prompt=negative_prompt,
                 image=img,
                 mask_image=mask,
+                width=width,    
+                height=height,
                 strength=self.cfg.model.strength if hasattr(self.cfg.model, 'strength') else 1.0, # default 1.0
                 control_image=control_images,
                 controlnet_conditioning_scale=controlnet_conditioning_scale,
@@ -114,13 +119,12 @@ class DatasetGenerator:
         if self.cfg.input.depth:
             control_image = self.make_depth_control(img)
             if save:
-                save_path = os.path.join(save_path, "depth", f"{image_name.split('.')[0]}.png")
                 plt.figure(figsize=(10, 5))
                 plt.imshow(control_image, cmap='magma_r')
                 plt.colorbar(label='Depth')
                 plt.title('Depth Map Image 1')
                 plt.axis('off')
-                plt.savefig(save_path)
+                plt.savefig(os.path.join(save_path, "depth", f"{image_name.split('.')[0]}.png"))
             control_images.append(control_image)
 
         if self.cfg.input.canny:
@@ -131,8 +135,8 @@ class DatasetGenerator:
 
         if self.cfg.input.inpaint:
             control_image = self.make_inpaint_condition(img, mask)
-            if save:
-                control_image.save(os.path.join(save_path, "inpaint_control", f"{image_name.split('.')[0]}.png"))
+            # if save:
+            #     control_image.save(os.path.join(save_path, "inpaint_control", f"{image_name.split('.')[0]}.png"))
             control_images.append(control_image)
         return control_images   
 
@@ -180,6 +184,7 @@ class DatasetGenerator:
 
         config["load_weights_dir"] = self.cfg.model.dap_load_weights_dir
         model, _ = DAP_load_model(config)
+
         return model
         
     def make_depth_control(self, rgb_pil):
@@ -187,9 +192,16 @@ class DatasetGenerator:
         depth = self.normalize_depth_to_8bit(depth)
         return depth
 
+    
     def dilate_mask(self, mask, radius=8):
         """Often improves seams: dilate mask a bit so model repaints edges cleanly."""
-        m = np.array(mask.cpu().numpy().astype(np.uint8) * 255)
+        if isinstance(mask, torch.Tensor):
+            # Convert tensor to numpy and scale to 0-255
+            m = (mask.cpu().numpy() * 255).astype(np.uint8)
+        else:
+            # Assume it's already a numpy array
+            m = np.array(mask).astype(np.uint8)
+
         k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (radius, radius))
         m = cv2.dilate(m, k, iterations=1)
         return Image.fromarray(m, mode="L")
@@ -316,8 +328,7 @@ class DatasetGenerator:
         result_mask = Image.fromarray(mask_smoothed, mode="L")
 
         if save_path:
-            result_mask.save(os.path.join(save_path, "weather" ,  f"{image_name.split('.')[0]}_mask.png"))
-            print(f"Saved weather mask to {save_path}")
+            result_mask.save(os.path.join(save_path, "weather" , f"{image_name.split('.')[0]}_mask.png"))
 
         return result_mask
     
@@ -408,7 +419,7 @@ class DatasetGenerator:
 
         inpainted_image = self.inpainting(img, full_mask, prompt_inpaint,
                         control_images=control_images, num_controlnets=self.num_controlnets)
-        print(f"After inpainting: img {img.size}, mask {full_mask.size}, inpainted {inpainted_image.size}")
+        print(f"After Weather inpainting: img {img.size}, mask {full_mask.size}, inpainted {inpainted_image.size}")
 
         # Save inpainting results
         len_prompt_toshow = min(25, len(prompt_inpaint))

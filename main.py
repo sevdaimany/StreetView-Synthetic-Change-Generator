@@ -16,6 +16,9 @@ import traceback
 from utils import *
 import torch.multiprocessing as mp
 import fcntl
+import torch
+import gc
+
 load_dotenv()
 login(os.getenv("HF_TOKEN"))
 
@@ -38,6 +41,8 @@ def process_and_save_synthetic_change(
     Extracts masks, runs the inpainting generator, creates visual overlays, 
     and saves the complete before/after pipeline to disk.
     """
+
+    current_pair = (img_name1, img_name2)
     viz_dir, data_dir = create_folders(cfg, city_name, sequence_id)
 
     # EXTRACT AND MERGE BOTH 'BEFORE' AND 'AFTER' MASKS FOR ALL SELECTED INSTANCES
@@ -71,7 +76,7 @@ def process_and_save_synthetic_change(
             weather_image_name = img_name2
             prompt_weather = random.choice(prompts_weather)
             img2 = generator.inference_change_style(img_for_weather, weather_image_name, prompt_weather, save_path=viz_dir, save_all=True)
-        logger.info(f"[{city_name} / {sequence_id}] Applied weather change: '{prompt_weather}' to image '{weather_image_name}'")
+        logger.info(f"[{city_name} / {sequence_id} / {weather_image_name} ] Applied weather change: '{prompt_weather}' to image '{weather_image_name}'")
         
 
     # 2) apply synthetic change
@@ -85,24 +90,25 @@ def process_and_save_synthetic_change(
         save_all=True 
     )
     # Standardize sizes
-    logger.info(f"[{city_name} / {sequence_id}] After generator.inference: img1 size: {img1.size}, img2 size: {img2.size},  inpainted size: {inpainted_image.size}, mask_after size: {mask_after_pil.size}")
+    logger.info(f"[{city_name} / {sequence_id} / {current_pair}] After generator.inference: img1 size: {img1.size}, img2 size: {img2.size},  inpainted size: {inpainted_image.size}, mask_after size: {mask_after_pil.size}")
                     
     target_size = img1.size
     if inpainted_image.size != target_size or mask_after_pil.size != target_size or mask_before_pil.size != target_size:
-        logger.warning(f"[{city_name} / {sequence_id}] Size mismatch detected. Resizing all to {target_size}.")
+        print(f"⚠️ Size mismatch detected. Resizing all to {target_size}.")
+        logger.warning(f"[{city_name} / {sequence_id} / {current_pair}] Size mismatch detected. Resizing all to {target_size}.")
         inpainted_image = inpainted_image.resize(target_size, Image.Resampling.LANCZOS)
         mask_after_pil = mask_after_pil.resize(target_size, Image.Resampling.NEAREST)
         mask_before_pil = mask_before_pil.resize(target_size, Image.Resampling.NEAREST)
+        logger.info( f"[{city_name} / {sequence_id} / {current_pair}] After Size Standardization - img1: {img1.size}, img2: {img2.size}, inpainted: {inpainted_image.size}, mask_before: {mask_before_pil.size}, mask_after: {mask_after_pil.size}")
     mask_after_np = np.array(mask_after_pil)
     mask_before_np = np.array(mask_before_pil)
-    logger.info( f"[{city_name} / {sequence_id}] After Size Standardization - img1: {img1.size}, img2: {img2.size}, inpainted: {inpainted_image.size}, mask_before: {mask_before_pil.size}, mask_after: {mask_after_pil.size}")
     
     # VERIFY BUILDING REMOVAL / REPLACEMENT
     verification_status = "Not Checked"
     
     if "buildings" == prompt_seg.lower():
         verification_status = generator.verify_building_removal(inpainted_image, prompt_seg, mask_after_np)
-        logger.info(f"[{city_name} / {sequence_id}] SAM Verification: Building was {verification_status.upper()}.")
+        logger.info(f"[{city_name} / {sequence_id} / {current_pair}] SAM Verification: Building was {verification_status.upper()}.")
 
 
 
@@ -176,7 +182,6 @@ def create_folders(cfg, city_name, sequence_id):
 
     os.makedirs(os.path.join(viz_dir, "depth"), exist_ok=True)
     os.makedirs(os.path.join(viz_dir, "edge_detection"), exist_ok=True)
-    os.makedirs(os.path.join(viz_dir, "inpaint_control"), exist_ok=True)
     os.makedirs(os.path.join(viz_dir, "weather"), exist_ok=True)
     os.makedirs(os.path.join(viz_dir, "inpainting"), exist_ok=True)
     
@@ -185,8 +190,9 @@ def create_folders(cfg, city_name, sequence_id):
 
 
 def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipeline, generator, cfg, logger):
+    # get city name from path
     sequence_path = os.path.join(base_path, sequence_id)
-    city_name = os.path.basename(os.path.dirname(base_path))
+    city_name = os.path.basename(base_path)
     valid_extensions = ('.png', '.jpg', '.jpeg')
     image_files = sorted([f for f in os.listdir(sequence_path) if f.lower().endswith(valid_extensions)])
     image_files = image_files[1:4]
@@ -196,10 +202,10 @@ def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipel
 
     # Generate the adjacent pairs
     adjacent_pairs = []
-    adjacent_pairs.append(image_files[1], image_files[1]) # center-center
-    adjacent_pairs.append(image_files[0], image_files[1]) # prev-center
-    adjacent_pairs.append(image_files[1], image_files[2]) # center-next
-    adjacent_pairs.append(image_files[0], image_files[2]) # prev-next
+    adjacent_pairs.append((image_files[1], image_files[1])) # center-center
+    adjacent_pairs.append((image_files[0], image_files[1])) # prev-center
+    adjacent_pairs.append((image_files[1], image_files[2])) # center-next
+    adjacent_pairs.append((image_files[0], image_files[2])) # prev-next
 
 
     adjacent_classes = ["traffic signs", "traffic lights", "trash cans"] # classes that require adjacent pairing logic
@@ -222,13 +228,13 @@ def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipel
                     
                     # # RESTART LOGIC: Check if work is already done
                     if check_redundancy(city_name, sequence_id, class_name, img_name1, img_name2, cfg):
-                        logger.info(f"[{city_name} / {sequence_id}] Skipping {class_name} for {img_name1} -> {img_name2} (already processed)")
+                        logger.info(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}] Skipping {class_name} for {img_name1} -> {img_name2} (already processed)")
                         continue
 
                     # Core Processing
                     matches = sam_pipeline.track_class(prompt_seg)
                     if len(matches) == 0:
-                        logger.warning(f"[{city_name} / {sequence_id}] No {prompt_seg} matches found. Skipping.")
+                        logger.warning(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}] No {prompt_seg} matches found. Skipping.")
                         continue
                 
 
@@ -243,7 +249,7 @@ def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipel
                     average_area = np.mean(areas)
                     selected_matches = [m for m, area in zip(matches, areas) if area >= average_area]
 
-                    logger.info(f"[{city_name} / {sequence_id}]  {len(selected_matches)} matches selected after area filtering (average area: {average_area:.2f}), out of {len(matches)} total matches.")
+                    logger.info(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}]  {len(selected_matches)} matches selected after area filtering (average area: {average_area:.2f}), out of {len(matches)} total matches.")
                     
                     if selection_mode == "biggest":
                         selected_instances = [max(selected_matches, key=lambda x: np.sum(x["after_mask"]))]
@@ -256,7 +262,7 @@ def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipel
                             num_to_select = len(selected_matches)
                         selected_instances = random.sample(selected_matches, k=num_to_select)
 
-                    print(f"Before processing synthetic change: img1 size: {img1.size}, img2 size: {img2.size}, segmentation size: {selected_instances[0]['after_mask'].shape}")
+                    logger.info(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}] Before processing synthetic change: img1 size: {img1.size}, img2 size: {img2.size}, segmentation size: {selected_instances[0]['after_mask'].shape}")
                     process_and_save_synthetic_change(
                         generator=generator,
                         cfg=cfg,
@@ -271,14 +277,14 @@ def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipel
                         prompt_inpaint=prompt_inpaint,
                         logger=logger
                     )
-                    logger.info(f"[{city_name} / {sequence_id}] Successfully processed {class_name} | {img_name1}")
+                    logger.info(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}] Successfully processed {class_name} | {img_name1}")
 
                 except Exception as e:
-                    logger.error(f"[{city_name} / {sequence_id}] Error processing CLASS '{class_name}' for pair {img_name1}-{img_name2}: {e}")
+                    logger.error(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}] Error processing class '{class_name}' for pair {img_name1}-{img_name2}: {e}")
                     logger.error(traceback.format_exc())
 
         except Exception as e:
-            logger.error(f"[{city_name} / {sequence_id}] Error processing pair {img_name1}-{img_name2}: {e}")
+            logger.error(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}] Error processing pair {img_name1}-{img_name2}: {e}")
             logger.error(traceback.format_exc())
         finally:
             sam_pipeline.clear_current_pair()
@@ -292,7 +298,7 @@ def load_models(cfg, device, logger):
 
 
 def process_city_worker(args):
-    city_name, cfg, qpu_queue, completed_file = args
+    city_name, cfg, gpu_queue, completed_file = args
 
     # Atomic File Locking
     city_output_path = os.path.join(cfg.output.dir_root, 'pipeline_data', city_name)
@@ -312,7 +318,7 @@ def process_city_worker(args):
 
     # Initialize logger for the city
     log_dir_root = os.path.join(os.path.dirname(__file__), "logs_pipeline")
-    logger = setup_logger(city_name, log_dir_root)
+    logger = setup_logger(log_dir_root, city_name)
     logger.info(f"Configuration:\n{OmegaConf.to_yaml(cfg)}")
 
     logger.info(f"[{city_name}] Started processing city. Claimed GPU: {device}")
@@ -366,7 +372,7 @@ def process_city_worker(args):
         logger.info(f"[{city_name}] VRAM cleared. Released GPU {device} back to queue.")
 
 
-@hydra.main(config_path=".", config_name="config")
+@hydra.main(config_path=".", config_name="config_pipeline")
 def run(cfg: DictConfig):
 
     mp.set_start_method('spawn', force=True)  # For safe multiprocessing with PyTorch and CUDA
@@ -378,9 +384,9 @@ def run(cfg: DictConfig):
 
     # create a queue and populate it with available GPU IDs
     manager = mp.Manager()
-    qpu_queue = manager.Queue()
+    gpu_queue = manager.Queue()
     for i in range(num_gpus):
-        qpu_queue.put(i)
+        gpu_queue.put(i)
 
     # Load already-completed cities from the tracking file
     completed_file = os.path.join(os.path.dirname(__file__), "completed_cities.txt")
@@ -405,7 +411,7 @@ def run(cfg: DictConfig):
     # build arguments for the pool
     worker_args = []
     for city in city_folders:
-        worker_args.append((city, cfg, qpu_queue, completed_file))
+        worker_args.append((city, cfg, gpu_queue, completed_file))
     
     #  Run the pool - As soon as a worker finishes a city, it automatically grabs the next one
     with mp.Pool(processes=num_gpus) as pool:
