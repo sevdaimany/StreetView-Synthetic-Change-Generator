@@ -135,8 +135,6 @@ class DatasetGenerator:
 
         if self.cfg.input.inpaint:
             control_image = self.make_inpaint_condition(img, mask)
-            # if save:
-            #     control_image.save(os.path.join(save_path, "inpaint_control", f"{image_name.split('.')[0]}.png"))
             control_images.append(control_image)
         return control_images   
 
