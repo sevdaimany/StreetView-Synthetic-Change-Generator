@@ -158,43 +158,78 @@ class SAM3CorrespondencePipeline:
                 })
         return matched_pairs
     
+    # def _extract_sequence_matches(self, clean_outputs):
+    #     """Internal helper to parse masks across N frames, regardless of when they appear."""
+    #     matched_instances = []
+        
+    #     # Gather EVERY unique object ID generated across ALL frames
+    #     all_obj_ids = set()
+    #     for frame_idx, frame_data in clean_outputs.items():
+    #         all_obj_ids.update(frame_data.keys())
+            
+    #     # If SAM found absolutely nothing in any frame, return empty
+    #     if not all_obj_ids:
+    #         return matched_instances
+            
+    #     # Extract masks for each unique object across the timeline
+    #     for obj_id in all_obj_ids:
+    #         masks = []
+    #         appears_in_all_frames = True
+            
+    #         for i in range(self.num_frames):
+    #             # Check if this frame exists and contains our specific object ID
+    #             if i in clean_outputs and obj_id in clean_outputs[i]:
+    #                 mask = clean_outputs[i][obj_id]
+                    
+    #                 # Ensure the mask isn't empty/noise (threshold of 50 pixels)
+    #                 if mask is not None:   # and mask.sum() > 50:
+    #                     masks.append(mask)
+    #                 else:
+    #                     # Object is occluded or disappeared in this specific frame
+    #                     masks.append(None)
+    #                     appears_in_all_frames = False
+    #             else:
+    #                 # Object hasn't appeared yet, or is gone
+    #                 masks.append(None)
+    #                 appears_in_all_frames = False
+            
+    #         # Keep the instance if it had a valid mask in on all frames
+    #         if appears_in_all_frames:
+    #             matched_instances.append({
+    #                 "instance_id": obj_id,
+    #                 "masks": masks
+    #             })
+                
+    #     return matched_instances
+
     def _extract_sequence_matches(self, clean_outputs):
         """Internal helper to parse masks across N frames, regardless of when they appear."""
         matched_instances = []
         
-        # Gather EVERY unique object ID generated across ALL frames
         all_obj_ids = set()
         for frame_idx, frame_data in clean_outputs.items():
             all_obj_ids.update(frame_data.keys())
             
-        # If SAM found absolutely nothing in any frame, return empty
         if not all_obj_ids:
             return matched_instances
             
-        # Extract masks for each unique object across the timeline
         for obj_id in all_obj_ids:
             masks = []
-            appears_in_all_frames = True
+            valid_mask_count = 0
             
             for i in range(self.num_frames):
-                # Check if this frame exists and contains our specific object ID
                 if i in clean_outputs and obj_id in clean_outputs[i]:
                     mask = clean_outputs[i][obj_id]
-                    
-                    # Ensure the mask isn't empty/noise (threshold of 50 pixels)
-                    if mask is not None:   # and mask.sum() > 50:
+                    if mask is not None and mask.sum() > 0: # Threshold can be adjusted
                         masks.append(mask)
+                        valid_mask_count += 1
                     else:
-                        # Object is occluded or disappeared in this specific frame
                         masks.append(None)
-                        appears_in_all_frames = False
                 else:
-                    # Object hasn't appeared yet, or is gone
                     masks.append(None)
-                    appears_in_all_frames = False
             
-            # Keep the instance if it had a valid mask in on all frames
-            if appears_in_all_frames:
+            # Keep the instance if it appears in AT LEAST one frame
+            if valid_mask_count > 0:
                 matched_instances.append({
                     "instance_id": obj_id,
                     "masks": masks
