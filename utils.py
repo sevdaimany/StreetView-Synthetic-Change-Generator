@@ -126,6 +126,12 @@ def check_redundancy(city_name, sequence_id, class_name, img_name1, img_name2, c
     check_path = os.path.join(base_dir, f"{pair_id}_meta.json")
     return os.path.exists(check_path)
 
+def check_redundancy_run_on_center(city_name, sequence_id, class_name, cfg):
+    safe_class = class_name.replace(" ", "_")
+    base_dir = os.path.join(cfg.output.dir_root, 'pipeline_data', city_name, sequence_id, safe_class)
+    check_path = os.path.join(base_dir, f"metadata.json")
+    return os.path.exists(check_path)
+
 
 
 def collect_metadata_for_all_pairs(cfg):

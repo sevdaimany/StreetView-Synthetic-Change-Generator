@@ -22,21 +22,159 @@ import gc
 load_dotenv()
 login(os.getenv("HF_TOKEN"))
 
+def process_and_save_synthetic_change_at_center(
+    generator, cfg, sequence_id, city_name,
+    images, image_names, center_idx,
+    selected_instances, prompt_seg, prompt_inpaint, logger
+    ):
+    """
+    Applies weather to all sequence images, extracts masks for ALL frames, 
+    applies synthetic inpainting to the center image, and saves results in a sequence folder.
+    """
+    
+    img_name_center = image_names[center_idx]
+    viz_dir, base_data_dir = create_folders(cfg, city_name, sequence_id)
+    prompts_weather = cfg.input.get("prompts_weather")
+
+    # Change season style 
+    processed_images = []
+    weather_applied_list = [] # Track which images got weather and what prompt was used
+
+    for i, (img, img_name) in enumerate(zip(images, image_names)):
+        apply_weather = random.random() < 0.5
+        if apply_weather:
+            prompt_weather = random.choice(prompts_weather) 
+            img = generator.inference_change_style(img, img_name, prompt_weather, save_path=viz_dir, save_all=True)
+            logger.info(f"[{city_name} / {sequence_id}] Applied weather '{prompt_weather}' to seq frame '{img_name}'")
+            weather_applied_list.append({"image_name": img_name, "weather_prompt": prompt_weather})
+        
+        processed_images.append(img)
+        
+    img_center = processed_images[center_idx]
+
+    # EXTRACT CENTER MASK FOR INPAINTING
+    center_masks = [np.array(inst["masks"][center_idx]) > 0 for inst in selected_instances if inst["masks"][center_idx] is not None]
+    merged_center_mask = np.any(center_masks, axis=0) if center_masks else np.zeros((img_center.size[1], img_center.size[0]), dtype=bool)
+    mask_center_pil = Image.fromarray((merged_center_mask * 255).astype(np.uint8), mode="L")
+
+    # Apply synthetic change ONLY to center image
+    inpainted_image, selected_mask = generator.inference(
+        img=img_center, 
+        image_name=img_name_center, 
+        prompt_seg=prompt_seg, 
+        prompt_inpaint=prompt_inpaint,
+        seg_mask=mask_center_pil, 
+    )
+    
+    # Standardize sizes if generator altered them
+    target_size = img_center.size
+    if inpainted_image.size != target_size or mask_center_pil.size != target_size:
+        print(f"⚠️ Size mismatch detected. Resizing inpainted image and mask to {target_size}.")
+        inpainted_image = inpainted_image.resize(target_size, Image.Resampling.LANCZOS)
+        mask_center_pil = mask_center_pil.resize(target_size, Image.Resampling.NEAREST)
+
+    # Verification
+    verification_status = "Not Checked"
+    if "buildings" == prompt_seg.lower():
+        verification_status = generator.verify_building_removal(inpainted_image, prompt_seg, np.array(mask_center_pil))
+
+    # --- SETUP SAVING DIRECTORY ---
+    safe_class = prompt_seg.replace(" ", "_")
+    
+    # Create a specific folder for this sequence event to keep things organized
+    event_dir = os.path.join(base_data_dir, safe_class)
+    os.makedirs(event_dir, exist_ok=True)
+
+    # --- SAVE IMAGES AND MASKS FOR ALL FRAMES ---
+    saved_image_paths = []
+    saved_mask_paths = []
+    saved_bbox_paths = []
+    valid_frames = []
+    changed_center_path = None
+    
+    for i, (img, img_name) in enumerate(zip(processed_images, image_names)):
+        is_center = (i == center_idx)
+        img_base_name = os.path.splitext(img_name)[0]
+
+        # Save Base Sequence Image (Always saved)
+        base_img_path = os.path.join(event_dir, img_name)
+        img.save(base_img_path)
+        saved_image_paths.append(base_img_path)
+        
+        # Save changed image if it's the center
+        if is_center:
+            changed_img_path = os.path.join(event_dir, f"{img_base_name}_changed.png")
+            inpainted_image.save(changed_img_path)
+            changed_center_path = changed_img_path
+
+        # Extract masks to see if object exists in this frame
+        frame_masks = [np.array(inst["masks"][i]) > 0 for inst in selected_instances if inst["masks"][i] is not None]
+        
+        # Only process and save Mask & BBox if the object actually appears
+        if frame_masks:
+            valid_frames.append(img_name)
+            
+            # --- Save Mask ---
+            merged_frame_mask = np.any(frame_masks, axis=0)
+            mask_np = (merged_frame_mask * 255).astype(np.uint8)
+            mask_pil = Image.fromarray(mask_np, mode="L")
+            mask_pil = mask_pil.resize(target_size, Image.Resampling.NEAREST) 
+            
+            mask_path = os.path.join(event_dir, f"{img_base_name}_mask.png")
+            mask_pil.save(mask_path)
+            saved_mask_paths.append(mask_path)
+            
+            # --- Save BBoxes ---
+            bbox_path = os.path.join(event_dir, f"{img_base_name}_bbox.txt")
+            frame_instances = []
+            for inst in selected_instances:
+                if inst["masks"][i] is not None:
+                    inst_copy = inst.copy()
+                    inst_copy["current_frame_mask"] = inst["masks"][i]
+                    frame_instances.append(inst_copy)
+                    
+            viz_bbox_path = os.path.join(viz_dir, "bbox", f"{safe_class}_{img_base_name}.jpg")
+            save_voc_bboxes_and_overlay(
+                image_pil=img, 
+                instances=frame_instances, 
+                mask_key="current_frame_mask",
+                class_name=prompt_seg, 
+                txt_path=bbox_path, 
+                overlay_path=viz_bbox_path
+            )
+            saved_bbox_paths.append(bbox_path)
+
+    # --- SAVE METADATA ---
+    metadata = {
+        "city_name": city_name,
+        "sequence_id": sequence_id,
+        "class_name": prompt_seg,
+        "inpaint_prompt": prompt_inpaint,
+        "num_instances": len(selected_instances),
+        "rank_score": [inst.get("rank", 0) for inst in selected_instances],
+        "verification_status": verification_status,
+        "center_image_name": img_name_center,
+        "weather_applied": weather_applied_list,
+        "frames_with_object": valid_frames,         # <-- Added this so you know exactly where objects are
+        "image_paths": saved_image_paths,
+        "mask_paths": saved_mask_paths,
+        "bbox_paths": saved_bbox_paths,
+        "changed_center_image_path": changed_center_path,
+    }
+    
+    with open(os.path.join(event_dir, "metadata.json"), 'w') as f:
+        json.dump(metadata, f, indent=4)
+        
+    # --- VISUALIZATION ---
+    overlay_img = generator.overlay_mask(img_center, np.array(mask_center_pil))
+    inpainted_name = f"{safe_class}_{img_name_center.split('.')[0]}.jpg"
+    generator.save_inpainted_and_mask(inpainted_image, overlay_img, save_path=os.path.join(viz_dir, "inpainting", inpainted_name))
+
 
 def process_and_save_synthetic_change(
-    generator, 
-    cfg, 
-    sequence_id, 
-    city_name,
-    img1, 
-    img2, 
-    img_name1, 
-    img_name2, 
-    selected_instances, 
-    prompt_seg, 
-    prompt_inpaint,
-    logger
-    ):
+    generator, cfg, sequence_id, city_name,
+    img1, img2, img_name1, img_name2, 
+    selected_instances, prompt_seg, prompt_inpaint,logger):
     """
     Gets the selected masks from SAM, applies the inpainting generator to create synthetic changes,
     and saves the complete before/after pipeline to disk.
@@ -61,6 +199,7 @@ def process_and_save_synthetic_change(
 
     # 1) change season style
     apply_weather = random.random() < 0.5
+    # apply_weather = True
     prompts_weather = cfg.input.get("prompts_weather", [])
     if apply_weather:
         # randomly choose between image1 and image2 for the weather change
@@ -187,13 +326,155 @@ def create_folders(cfg, city_name, sequence_id):
     os.makedirs(os.path.join(viz_dir, "edge_detection"), exist_ok=True)
     os.makedirs(os.path.join(viz_dir, "weather"), exist_ok=True)
     os.makedirs(os.path.join(viz_dir, "inpainting"), exist_ok=True)
+    os.makedirs(os.path.join(viz_dir, "bbox"), exist_ok=True)
     
 
     return viz_dir, data_dir
 
 
+def select_mask(matches, selection_mode, logger, city_name, sequence_id, current_pair, prompt_seg):
+    if len(matches) == 0:
+        logger.warning(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}] No {prompt_seg} matches found. Skipping.")
+        return None
+
+    # comment if you dont want to save correspondences
+    # save_path = os.path.join(cfg.output.base, cfg.output.production_ready, cfg.output.correspondence_visualization, f"{prompt_seg}_{sequence_id}_{img_name1.split('.')[0]}_{img_name2.split('.')[0]}.jpg")
+    # sam_pipeline.visualize_correspondence(img1, img2, matches, save_path=save_path)
+    # continue # Skip the rest if you only want to save correspondences and not generate synthetic changes
+
+    # Selection logic...
+    areas = [np.sum(np.array(m["after_mask"]) > 0) for m in matches]
+    average_area = np.mean(areas)
+    selected_matches = [m for m, area in zip(matches, areas) if area >= average_area]
+
+    logger.info(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}]  {len(selected_matches)} matches selected after area filtering (average area: {average_area:.2f}), out of {len(matches)} total matches.")
+    
+    if selection_mode == "biggest":
+        selected_instances = [max(selected_matches, key=lambda x: np.sum(x["after_mask"]))]
+    else:
+        if selection_mode == "subset": # 75% chance to select only one, 25% chance to select all
+                num_to_select = 1 if random.random() < 0.75 else min(len(selected_matches), 2)
+        elif selection_mode == "single":
+            num_to_select = 1
+        else: # "all"
+            num_to_select = len(selected_matches)
+        selected_instances = random.sample(selected_matches, k=num_to_select)
+    return selected_instances
+
+
+
+def select_mask_ranked(matches, selection_mode, logger, city_name, sequence_id, img_name_center, prompt_seg, center_idx):
+    if len(matches) == 0:
+        logger.warning(f"[{city_name} / {sequence_id} / {img_name_center}] No {prompt_seg} matches found.")
+        return None
+    
+    # RANKING LOGIC 
+    # ranked_matches: list of dicts, each dict has keys: instance_id (int), 'masks' (list of masks for each frame), 'rank' (int), 'area' (int, area of center mask))
+    ranked_matches = []
+    for match in matches:
+        masks = match["masks"]
+        
+        # Object MUST be in the center image
+        if masks[center_idx] is None or masks[center_idx].sum() == 0:
+            continue 
+            
+        rank = 0
+        
+        # Check +/- 1 frame (+3 points each)
+        if center_idx - 1 >= 0 and masks[center_idx - 1] is not None: rank += 3
+        if center_idx + 1 < len(masks) and masks[center_idx + 1] is not None: rank += 3
+        
+        # Check +/- 2 frames (+1 point each)
+        if center_idx - 2 >= 0 and masks[center_idx - 2] is not None: rank += 1
+        if center_idx + 2 < len(masks) and masks[center_idx + 2] is not None: rank += 1
+        
+        match["rank"] = rank
+        match["area"] = masks[center_idx].sum()
+        ranked_matches.append(match)
+    
+    if not ranked_matches:
+        logger.warning(f"[{city_name} / {sequence_id}] Objects found, but none appeared in center frame.")
+        return None
+    
+    # Sort by Rank (Highest first), then Area as tie-breaker
+    ranked_matches.sort(key=lambda x: (x["rank"], x["area"]), reverse=True)
+    
+    logger.info(f"[{city_name} / {sequence_id}] Top rank score: {ranked_matches[0]['rank']}/8 for {prompt_seg}")
+    
+    # Selection logic
+    if selection_mode == "biggest" or selection_mode == "single":
+        selected_instances = [ranked_matches[0]]
+    else: 
+        # subset/all logic based on top ranks
+        num_to_select = 1 if random.random() < 0.75 else min(len(ranked_matches), 2)
+        selected_instances = ranked_matches[:num_to_select]
+    return selected_instances
+
+
+
+def process_sequence_at_center(sequence_id, base_path, classes, class_to_prompt, sam_pipeline, generator, cfg, logger):
+    sequence_path = os.path.join(base_path, sequence_id)
+    city_name = os.path.basename(base_path)
+    valid_extensions = ('.png', '.jpg', '.jpeg')
+    image_files = sorted([f for f in os.listdir(sequence_path) if f.lower().endswith(valid_extensions)])
+    
+    if len(image_files) < 5:
+        logger.warning(f"[{city_name} / {sequence_id}] Sequence has less than 5 images. Found {len(image_files)} images. Skipping this sequence for center-based processing.")
+        return
+        
+    center_idx = 2
+    selection_mode = cfg.input.get("mask_selection_mode", "single")
+    logger.info(f"\n[{city_name} / {sequence_id}] Initializing sequence centered on {image_files[center_idx]}...")
+
+    try:
+        # Load all images in the sequence
+        images = [load_image(os.path.join(sequence_path, f), cfg) for f in image_files]
+        sam_pipeline.load_image_sequence(images)
+        
+        for class_name in classes:
+            try:
+                prompt_seg = class_name
+                prompt_inpaint = class_to_prompt[class_name]
+                img_name_center = image_files[center_idx]
+                
+                # Check redundancy based on center image
+                if check_redundancy_run_on_center(city_name, sequence_id, class_name, cfg):
+                    logger.info(f"[{city_name} / {sequence_id} / {img_name_center}] Skipping {class_name} (already processed)")
+                    continue
+
+                # Track across sequence
+                matches = sam_pipeline.track_class_sequence(prompt_seg)
+                selected_instances = select_mask_ranked(matches, selection_mode, logger, city_name, sequence_id, img_name_center, prompt_seg, center_idx)
+                if not selected_instances:
+                    logger.warning(f"[{city_name} / {sequence_id} / {img_name_center}] No valid matches selected for {prompt_seg}. Skipping synthetic change generation.")
+                    continue
+
+                process_and_save_synthetic_change_at_center(
+                    generator=generator,
+                    cfg=cfg,
+                    sequence_id=sequence_id,
+                    city_name=city_name,
+                    images=images,
+                    image_names=image_files,
+                    center_idx=center_idx,
+                    selected_instances=selected_instances,
+                    prompt_seg=prompt_seg,
+                    prompt_inpaint=prompt_inpaint,
+                    logger=logger
+                )
+
+            except Exception as e:
+                logger.error(f"[{city_name} / {sequence_id}] Error processing class '{class_name}': {e}")
+                logger.error(traceback.format_exc())
+
+    except Exception as e:
+        logger.error(f"[{city_name} / {sequence_id}] Error processing sequence: {e}")
+        logger.error(traceback.format_exc())
+    finally:
+        sam_pipeline.clear_current_pair()
+        
+
 def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipeline, generator, cfg, logger):
-    # get city name from path
     sequence_path = os.path.join(base_path, sequence_id)
     city_name = os.path.basename(base_path)
     valid_extensions = ('.png', '.jpg', '.jpeg')
@@ -236,35 +517,11 @@ def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipel
 
                     # Core Processing
                     matches = sam_pipeline.track_class(prompt_seg)
-                    if len(matches) == 0:
-                        logger.warning(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}] No {prompt_seg} matches found. Skipping.")
+                    selected_instances = select_mask(matches, selection_mode, logger, city_name, sequence_id, current_pair, prompt_seg)
+                    if not selected_instances:
+                        logger.warning(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}] No valid matches selected for {class_name}. Skipping synthetic change generation.")
                         continue
-                
-
-                    # comment if you dont want to save correspondences
-                    # save_path = os.path.join(cfg.output.base, cfg.output.production_ready, cfg.output.correspondence_visualization, f"{prompt_seg}_{sequence_id}_{img_name1.split('.')[0]}_{img_name2.split('.')[0]}.jpg")
-                    # sam_pipeline.visualize_correspondence(img1, img2, matches, save_path=save_path)
-                    # continue # Skip the rest if you only want to save correspondences and not generate synthetic changes
-
-
-                    # Selection logic...
-                    areas = [np.sum(np.array(m["after_mask"]) > 0) for m in matches]
-                    average_area = np.mean(areas)
-                    selected_matches = [m for m, area in zip(matches, areas) if area >= average_area]
-
-                    logger.info(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}]  {len(selected_matches)} matches selected after area filtering (average area: {average_area:.2f}), out of {len(matches)} total matches.")
                     
-                    if selection_mode == "biggest":
-                        selected_instances = [max(selected_matches, key=lambda x: np.sum(x["after_mask"]))]
-                    else:
-                        if selection_mode == "subset": # 75% chance to select only one, 25% chance to select all
-                                num_to_select = 1 if random.random() < 0.75 else min(len(selected_matches), 2)
-                        elif selection_mode == "single":
-                            num_to_select = 1
-                        else: # "all"
-                            num_to_select = len(selected_matches)
-                        selected_instances = random.sample(selected_matches, k=num_to_select)
-
                     logger.info(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}] Before processing synthetic change: img1 size: {img1.size}, img2 size: {img2.size}, segmentation size: {selected_instances[0]['after_mask'].shape}")
                     process_and_save_synthetic_change(
                         generator=generator,
@@ -341,7 +598,7 @@ def process_city_worker(args):
         classes = list(class_to_prompt.keys())
         for sequence_id in tqdm(sequence_folders, desc=f"{city_name} Sequences"):
             try:
-                process_sequence(sequence_id, city_path, classes, class_to_prompt, sam_pipeline, generator, cfg, logger)
+                process_sequence_at_center(sequence_id, city_path, classes, class_to_prompt, sam_pipeline, generator, cfg, logger)
                 gc.collect()
                 torch.cuda.empty_cache()
             except Exception as e:
