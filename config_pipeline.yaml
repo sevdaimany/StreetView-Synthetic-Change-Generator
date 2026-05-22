@@ -25,7 +25,7 @@ input:
 
   canny: true
   depth: true
-  inpaint: true # only for stable diffusion inpainting
+  inpaint: false # only for stable diffusion inpainting
   
 
   prompts_seg:
