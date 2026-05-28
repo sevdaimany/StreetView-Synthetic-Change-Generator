@@ -11,8 +11,8 @@ model:
   inpainting_xl: "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"  
   vae: "madebyollin/sdxl-vae-fp16-fix"
 
-  dap_config_path: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/DAP/config/infer.yaml"
-  dap_load_weights_dir: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/DAP/weights"
+  dap_config_path: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/vendor/DAP/config/infer.yaml"
+  dap_load_weights_dir: "/mnt/common/hdd/home/SImany/StreetView-Synthetic-Change-Generator/vendor/DAP/weights"
 
 
 input:
