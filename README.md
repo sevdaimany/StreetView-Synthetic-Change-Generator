@@ -196,5 +196,5 @@ The pipeline automatically:
 
 - [SAM3](https://github.com/facebookresearch/sam3) — video object segmentation and cross-frame tracking
 - [Diffusers](https://github.com/huggingface/diffusers) — Stable Diffusion XL / FLUX inpainting
-- [DAP (Depth Any Panorama)](https://github.com/Insta360-Research/DAP) — monocular depth estimation (optional ControlNet guidance)
+- [DAP (Depth Any Panorama)](https://github.com/Insta360-Research-Team/DAP) — monocular depth estimation (optional ControlNet guidance)
 - [Panoramax API](https://panoramax.fr) — source of sequential street-view image sequences
