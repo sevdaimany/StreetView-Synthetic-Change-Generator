@@ -119,10 +119,13 @@ class DatasetGenerator:
         if self.cfg.input.depth:
             control_image = self.make_depth_control(img)
             if save:
+                depth_array = np.array(control_image)                
+                if len(depth_array.shape) == 3:
+                    depth_array = depth_array[:, :, 0]
                 plt.figure(figsize=(10, 5))
-                plt.imshow(control_image, cmap='magma_r')
+                plt.imshow(depth_array, cmap='magma_r')
                 plt.colorbar(label='Depth')
-                plt.title('Depth Map Image 1')
+                plt.title('Depth Map')
                 plt.axis('off')
                 plt.savefig(os.path.join(save_path, "depth", f"{image_name.split('.')[0]}.png"))
             control_images.append(control_image)
