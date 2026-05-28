@@ -106,6 +106,7 @@ class SAM3CorrespondencePipeline:
                     text=class_name,
                 )
             )
+
         
         # Propagate through the sequence
         outputs_per_frame = {}
@@ -113,9 +114,8 @@ class SAM3CorrespondencePipeline:
             request=dict(type="propagate_in_video", session_id=self.current_session_id)
         ):
             outputs_per_frame[stream_res["frame_index"]] = stream_res["outputs"]
-            
-        clean_outputs = prepare_masks_for_visualization(outputs_per_frame)
-        return self._extract_sequence_matches(clean_outputs)
+
+        return self._extract_sequence_matches(outputs_per_frame)
 
     def clear_current_pair(self):
         """Closes the active session and deletes the temp images."""
@@ -202,41 +202,62 @@ class SAM3CorrespondencePipeline:
                 
     #     return matched_instances
 
-    def _extract_sequence_matches(self, clean_outputs):
-        """Internal helper to parse masks across N frames, regardless of when they appear."""
+    def _extract_sequence_matches(self, raw_outputs, prob_threshold=0.5):
+        """Internal helper to parse masks and probabilities across N frames.
+            input format: dict of frame_index -> dict with arrays for 'out_obj_ids', 'out_binary_masks', 'out_probs'
+            return format: List of dicts, each with an instance_id, masks, and out_probs
+        """
         matched_instances = []
         
+        # Gather all unique object IDs across all frames
         all_obj_ids = set()
-        for frame_idx, frame_data in clean_outputs.items():
-            all_obj_ids.update(frame_data.keys())
+        for frame_idx, out_dict in raw_outputs.items():
+            if "out_obj_ids" in out_dict:
+                all_obj_ids.update(out_dict["out_obj_ids"].tolist())
             
         if not all_obj_ids:
             return matched_instances
             
+        # Extract the sequences for each unique object ID
         for obj_id in all_obj_ids:
             masks = []
+            probs = []
             valid_mask_count = 0
             
             for i in range(self.num_frames):
-                if i in clean_outputs and obj_id in clean_outputs[i]:
-                    mask = clean_outputs[i][obj_id]
-                    if mask is not None and mask.sum() > 0: # Threshold can be adjusted
-                        masks.append(mask)
-                        valid_mask_count += 1
-                    else:
-                        masks.append(None)
-                else:
-                    masks.append(None)
+                mask_to_append = None
+                prob_to_append = None
+                
+                if i in raw_outputs and "out_obj_ids" in raw_outputs[i]:
+                    out_dict = raw_outputs[i]
+                    obj_ids_list = out_dict["out_obj_ids"].tolist()
+                    
+                    # Check if our current object ID exists in this frame
+                    if obj_id in obj_ids_list:
+                        # Find the index of the object ID to match the parallel arrays
+                        idx = obj_ids_list.index(obj_id)
+                        mask = out_dict["out_binary_masks"][idx]
+                        prob_val = out_dict["out_probs"][idx]
+
+                        # Only keep the mask/prob if the mask is valid/non-empty
+                        if mask is not None and mask.any() and prob_val >= prob_threshold: 
+                            mask_to_append = mask
+                            prob_to_append = prob_val
+                            valid_mask_count += 1
+                
+                # Append the valid data, or None if the object wasn't in this frame
+                masks.append(mask_to_append)
+                probs.append(prob_to_append)
             
-            # Keep the instance if it appears in AT LEAST one frame
+            # Keep the instance if it appeared in AT LEAST one frame
             if valid_mask_count > 0:
                 matched_instances.append({
                     "instance_id": obj_id,
-                    "masks": masks
+                    "masks": masks,
+                    "out_probs": probs
                 })
                 
         return matched_instances
-
         
 
     def visualize_correspondence(self, img_a, img_b, matched_pairs, save_path, alpha=0.5):
