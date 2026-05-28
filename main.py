@@ -18,6 +18,7 @@ import torch.multiprocessing as mp
 import fcntl
 import torch
 import gc
+import time
 
 load_dotenv()
 login(os.getenv("HF_TOKEN"))
@@ -28,7 +29,7 @@ def process_and_save_synthetic_change_at_center(
     selected_instances, prompt_seg, prompt_inpaint, logger
     ):
     """
-    Applies weather to all sequence images, extracts masks for ALL frames, 
+    Applies weather to all sequence images randomly, extracts masks for ALL frames, 
     applies synthetic inpainting to the center image, and saves results in a sequence folder.
     """
     
@@ -97,7 +98,7 @@ def process_and_save_synthetic_change_at_center(
         img_base_name = os.path.splitext(img_name)[0]
 
         # Save Base Sequence Image (Always saved)
-        base_img_path = os.path.join(event_dir, img_name)
+        base_img_path = os.path.join(event_dir, img_name.split('.')[0] + ".png")
         img.save(base_img_path)
         saved_image_paths.append(base_img_path)
         
@@ -145,6 +146,13 @@ def process_and_save_synthetic_change_at_center(
             saved_bbox_paths.append(bbox_path)
 
     # --- SAVE METADATA ---
+    # Extract a single track confidence per instance (grab the first non-None value)
+    track_confidences = []
+    for inst in selected_instances:
+        # Find the first valid float in the list. If somehow empty, default to 0.0
+        single_prob = next((p for p in inst.get("out_probs", []) if p is not None), 0.0)
+        track_confidences.append(float(single_prob))
+
     metadata = {
         "city_name": city_name,
         "sequence_id": sequence_id,
@@ -152,10 +160,11 @@ def process_and_save_synthetic_change_at_center(
         "inpaint_prompt": prompt_inpaint,
         "num_instances": len(selected_instances),
         "rank_score": [inst.get("rank", 0) for inst in selected_instances],
+        "track_confidences": track_confidences,
         "verification_status": verification_status,
         "center_image_name": img_name_center,
         "weather_applied": weather_applied_list,
-        "frames_with_object": valid_frames,         # <-- Added this so you know exactly where objects are
+        "frames_with_object": valid_frames,         # Added this so you know exactly where objects are
         "image_paths": saved_image_paths,
         "mask_paths": saved_mask_paths,
         "bbox_paths": saved_bbox_paths,
@@ -334,7 +343,6 @@ def create_folders(cfg, city_name, sequence_id):
 
 def select_mask(matches, selection_mode, logger, city_name, sequence_id, current_pair, prompt_seg):
     if len(matches) == 0:
-        logger.warning(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}] No {prompt_seg} matches found. Skipping.")
         return None
 
     # comment if you dont want to save correspondences
@@ -365,7 +373,6 @@ def select_mask(matches, selection_mode, logger, city_name, sequence_id, current
 
 def select_mask_ranked(matches, selection_mode, logger, city_name, sequence_id, img_name_center, prompt_seg, center_idx):
     if len(matches) == 0:
-        logger.warning(f"[{city_name} / {sequence_id} / {img_name_center}] No {prompt_seg} matches found.")
         return None
     
     # RANKING LOGIC 
@@ -413,6 +420,7 @@ def select_mask_ranked(matches, selection_mode, logger, city_name, sequence_id, 
 
 
 def process_sequence_at_center(sequence_id, base_path, classes, class_to_prompt, sam_pipeline, generator, cfg, logger):
+    start_time = time.time()
     sequence_path = os.path.join(base_path, sequence_id)
     city_name = os.path.basename(base_path)
     valid_extensions = ('.png', '.jpg', '.jpeg')
@@ -439,14 +447,14 @@ def process_sequence_at_center(sequence_id, base_path, classes, class_to_prompt,
                 
                 # Check redundancy based on center image
                 if check_redundancy_run_on_center(city_name, sequence_id, class_name, cfg):
-                    logger.info(f"[{city_name} / {sequence_id} / {img_name_center}] Skipping {class_name} (already processed)")
+                    logger.info(f"[{city_name} / {sequence_id}] Skipping {class_name} (already processed)")
                     continue
 
                 # Track across sequence
                 matches = sam_pipeline.track_class_sequence(prompt_seg)
                 selected_instances = select_mask_ranked(matches, selection_mode, logger, city_name, sequence_id, img_name_center, prompt_seg, center_idx)
                 if not selected_instances:
-                    logger.warning(f"[{city_name} / {sequence_id} / {img_name_center}] No valid matches selected for {prompt_seg}. Skipping synthetic change generation.")
+                    logger.warning(f"[{city_name} / {sequence_id}] No {prompt_seg} matches found.")
                     continue
 
                 process_and_save_synthetic_change_at_center(
@@ -466,6 +474,8 @@ def process_sequence_at_center(sequence_id, base_path, classes, class_to_prompt,
             except Exception as e:
                 logger.error(f"[{city_name} / {sequence_id}] Error processing class '{class_name}': {e}")
                 logger.error(traceback.format_exc())
+        
+        logger.info(f"[{city_name} / {sequence_id}] Completed processing sequence in {time.time() - start_time:.2f} seconds.")
 
     except Exception as e:
         logger.error(f"[{city_name} / {sequence_id}] Error processing sequence: {e}")
