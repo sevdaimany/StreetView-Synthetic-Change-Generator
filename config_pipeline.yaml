@@ -1,6 +1,5 @@
 model:
   segmentation: "facebook/sam3"
-  depth_estimation: "Intel/dpt-hybrid-midas"
 
   inpainting: "stable-diffusion-v1-5/stable-diffusion-inpainting"
   controlnet: "lllyasviel/control_v11p_sd15_inpaint"
@@ -42,7 +41,6 @@ input:
 
 
 output:
-  # base: "/mnt/stores/store-DAI/pocs/simany/results_pipeline/"
   dir_root: "/mnt/stores/store-DAI/pocs/simany/pipeline3_test/"
 
 
