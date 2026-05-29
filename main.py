@@ -85,6 +85,9 @@ def process_and_save_synthetic_change_at_center(
     event_dir = os.path.join(base_data_dir, safe_class)
     os.makedirs(event_dir, exist_ok=True)
 
+    # Relative path for the metadata JSON (starts at city_name)
+    rel_dir = os.path.join(city_name, sequence_id, safe_class)
+
     # --- SAVE IMAGES AND MASKS FOR ALL FRAMES ---
     saved_image_paths = []
     saved_mask_paths = []
@@ -97,15 +100,17 @@ def process_and_save_synthetic_change_at_center(
         img_base_name = os.path.splitext(img_name)[0]
 
         # Save Base Sequence Image (Always saved)
-        base_img_path = os.path.join(event_dir, img_name.split('.')[0] + ".png")
+        base_img_filename = f"{img_base_name}.png"
+        base_img_path = os.path.join(event_dir, base_img_filename)
         img.save(base_img_path)
-        saved_image_paths.append(base_img_path)
+        saved_image_paths.append(os.path.join(rel_dir, base_img_filename))
         
         # Save changed image if it's the center
         if is_center:
-            changed_img_path = os.path.join(event_dir, f"{img_base_name}_changed.png")
+            changed_filename = f"{img_base_name}_changed.png"
+            changed_img_path = os.path.join(event_dir, changed_filename)
             inpainted_image.save(changed_img_path)
-            changed_center_path = changed_img_path
+            changed_center_path = os.path.join(rel_dir, changed_filename)
 
         # Extract masks to see if object exists in this frame
         frame_masks = [np.array(inst["masks"][i]) > 0 for inst in selected_instances if inst["masks"][i] is not None]
@@ -120,12 +125,14 @@ def process_and_save_synthetic_change_at_center(
             mask_pil = Image.fromarray(mask_np, mode="L")
             mask_pil = mask_pil.resize(target_size, Image.Resampling.NEAREST) 
             
-            mask_path = os.path.join(event_dir, f"{img_base_name}_mask.png")
+            mask_filename = f"{img_base_name}_mask.png"
+            mask_path = os.path.join(event_dir, mask_filename)
             mask_pil.save(mask_path)
-            saved_mask_paths.append(mask_path)
+            saved_mask_paths.append(os.path.join(rel_dir, mask_filename))
             
             # --- Save BBoxes ---
-            bbox_path = os.path.join(event_dir, f"{img_base_name}_bbox.txt")
+            bbox_filename = f"{img_base_name}_bbox.txt"
+            bbox_path = os.path.join(event_dir, bbox_filename)
             frame_instances = []
             for inst in selected_instances:
                 if inst["masks"][i] is not None:
@@ -142,7 +149,7 @@ def process_and_save_synthetic_change_at_center(
                 txt_path=bbox_path, 
                 overlay_path=viz_bbox_path
             )
-            saved_bbox_paths.append(bbox_path)
+            saved_bbox_paths.append(os.path.join(rel_dir, bbox_filename))
 
     # --- SAVE METADATA ---
     # Extract a single track confidence per instance (grab the first non-None value)
@@ -320,24 +327,7 @@ def process_and_save_synthetic_change(
         json.dump(metadata, f, indent=4)
 
 
-def create_folders(cfg, city_name, sequence_id):
-    # DEFINE DIRECTORY STRUCTURE
-    # Separate 'raw' data for training and 'viz' for human checking
-    base_dir = cfg.output.dir_root
-    viz_dir = os.path.join(base_dir, "pipeline_visualization", city_name, sequence_id)
-    data_dir = os.path.join(base_dir, "pipeline_data", city_name, sequence_id)
-    
-    os.makedirs(viz_dir, exist_ok=True)
-    os.makedirs(data_dir, exist_ok=True)
 
-    os.makedirs(os.path.join(viz_dir, "depth"), exist_ok=True)
-    os.makedirs(os.path.join(viz_dir, "edge_detection"), exist_ok=True)
-    os.makedirs(os.path.join(viz_dir, "weather"), exist_ok=True)
-    os.makedirs(os.path.join(viz_dir, "inpainting"), exist_ok=True)
-    os.makedirs(os.path.join(viz_dir, "bbox"), exist_ok=True)
-    
-
-    return viz_dir, data_dir
 
 
 def select_mask(matches, selection_mode, logger, city_name, sequence_id, current_pair, prompt_seg):
@@ -393,6 +383,10 @@ def select_mask_ranked(matches, selection_mode, logger, city_name, sequence_id, 
         # Check +/- 2 frames (+1 point each)
         if center_idx - 2 >= 0 and masks[center_idx - 2] is not None: rank += 1
         if center_idx + 2 < len(masks) and masks[center_idx + 2] is not None: rank += 1
+
+        # if it ONLY exists in the center frame. Skip it.
+        if rank == 0:
+            continue
         
         match["rank"] = rank
         match["area"] = masks[center_idx].sum()
@@ -404,6 +398,7 @@ def select_mask_ranked(matches, selection_mode, logger, city_name, sequence_id, 
     
     # Sort by Rank (Highest first), then Area as tie-breaker
     ranked_matches.sort(key=lambda x: (x["rank"], x["area"]), reverse=True)
+
     
     logger.info(f"[{city_name} / {sequence_id}] Top rank score: {ranked_matches[0]['rank']}/8 for {prompt_seg}")
     

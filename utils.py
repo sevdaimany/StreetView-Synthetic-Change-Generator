@@ -34,6 +34,26 @@ def setup_logger(log_dir_root, city_name):
     return logger
 
 
+def create_folders(cfg, city_name, sequence_id):
+    # DEFINE DIRECTORY STRUCTURE
+    # Separate 'raw' data for training and 'viz' for human checking
+    base_dir = cfg.output.dir_root
+    viz_dir = os.path.join(base_dir, "pipeline_visualization", city_name, sequence_id)
+    data_dir = os.path.join(base_dir, "pipeline_data", city_name, sequence_id)
+    
+    os.makedirs(viz_dir, exist_ok=True)
+    os.makedirs(data_dir, exist_ok=True)
+
+    os.makedirs(os.path.join(viz_dir, "depth"), exist_ok=True)
+    os.makedirs(os.path.join(viz_dir, "edge_detection"), exist_ok=True)
+    os.makedirs(os.path.join(viz_dir, "weather"), exist_ok=True)
+    os.makedirs(os.path.join(viz_dir, "inpainting"), exist_ok=True)
+    os.makedirs(os.path.join(viz_dir, "bbox"), exist_ok=True)
+    
+
+    return viz_dir, data_dir
+
+
 def load_image(image_path, cfg):
     img = Image.open(image_path).convert("RGB")
     img = img.resize((cfg.input.resize_width, cfg.input.resize_height), Image.Resampling.LANCZOS)
