@@ -1,5 +1,4 @@
 import os
-os.environ['TRITON_CACHE_DIR'] = os.path.join(os.getcwd(), '.triton_cache')
 import hydra
 import logging
 import random
@@ -583,6 +582,7 @@ def process_city_worker(args):
     
     # Dynamically assign GPU from the queue
     gpu_id = gpu_queue.get()
+    os.environ['TRITON_CACHE_DIR'] = os.path.join(os.getcwd(), f'.triton_cache_gpu{gpu_id}')
     import torch
     device = torch.device(f"cuda:{gpu_id}")
 
