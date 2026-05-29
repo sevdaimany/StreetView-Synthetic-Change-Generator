@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68,<82", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pipeline3"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "setuptools<82",
+    "transformers",
+    "opencv-python",
+    "diffusers",
+    "matplotlib",
+    "omegaconf",
+    "hydra-core",
+    "accelerate",
+    "python-dotenv",
+    "pandas",
+    "scikit-image",
+    "scikit-learn",
+    "einops",
+    "decord",
+    "pycocotools",
+    "termcolor",
+    "py360convert",
+    "torchmetrics",
+    "timm>=1.0.17",
+    "numpy>=1.26,<2",
+    "tqdm",
+    "ftfy==6.1.1",
+    "regex",
+    "iopath>=0.1.10",
+    "typing_extensions",
+    "huggingface_hub" # Required for the cli weight download
+]
+
+[tool.setuptools]
+package-dir = { "DAP" = "vendor/DAP", "sam3" = "vendor/sam3/sam3" }
+
+# Expose the vendor packages
+packages = ["DAP", "sam3"]
+py-modules = ["DatasetGenerator", "SAM3Correspondence", "utils", "main"]
