@@ -418,7 +418,7 @@ def select_mask_ranked(matches, selection_mode, logger, city_name, sequence_id, 
 
 
 
-def process_sequence_at_center(sequence_id, base_path, classes, class_to_prompt, sam_pipeline, generator, cfg, logger):
+def process_sequence_at_center(sequence_id, base_path, classes, class_to_prompt, sam_pipeline, generator, cfg, logger, seq_idx, total_sequences):
     start_time = time.time()
     sequence_path = os.path.join(base_path, sequence_id)
     city_name = os.path.basename(base_path)
@@ -431,7 +431,7 @@ def process_sequence_at_center(sequence_id, base_path, classes, class_to_prompt,
         
     center_idx = 2
     selection_mode = cfg.input.get("mask_selection_mode", "single")
-    logger.info(f"\n[{city_name} / {sequence_id}] Initializing sequence centered on {image_files[center_idx]}...")
+    logger.info(f"\n[{city_name} / {sequence_id}] Initializing sequence ({seq_idx}/{total_sequences}) centered on {image_files[center_idx]}...")
 
     try:
         # Load all images in the sequence
@@ -597,7 +597,7 @@ def process_city_worker(args):
     try:
         city_path = os.path.join(cfg.input.dir_root, city_name)
         sequence_folders = sorted([ d for d in os.listdir(city_path) if os.path.isdir(os.path.join(city_path, d))])
-        
+        total_sequences = len(sequence_folders)
         if not sequence_folders:
             logger.warning(f"No sequence folders found in {city_path}. Skipping city.")
             return
@@ -606,9 +606,9 @@ def process_city_worker(args):
         generator, sam_pipeline = load_models(cfg, device, logger)
         class_to_prompt = cfg.input.get("prompts_seg", {})   
         classes = list(class_to_prompt.keys())
-        for sequence_id in tqdm(sequence_folders, desc=f"{city_name} Sequences"):
+        for seq_idx, sequence_id in enumerate(tqdm(sequence_folders, desc=f"{city_name} Sequences"), start=1):
             try:
-                process_sequence_at_center(sequence_id, city_path, classes, class_to_prompt, sam_pipeline, generator, cfg, logger)
+                process_sequence_at_center(sequence_id, city_path, classes, class_to_prompt, sam_pipeline, generator, cfg, logger, seq_idx, total_sequences)
                 gc.collect()
                 torch.cuda.empty_cache()
             except Exception as e:
