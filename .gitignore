@@ -2,3 +2,5 @@
 outputs/
 __pycache__/
 vendor/DAP/weights/
+vendor/sam3/assets/
+vendor/DAP/assets/
