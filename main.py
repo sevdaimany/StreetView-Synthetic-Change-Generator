@@ -46,7 +46,7 @@ def process_and_save_synthetic_change_at_center(
             prompt_weather = random.choice(prompts_weather) 
             img = generator.inference_change_style(img, img_name, prompt_weather, save_path=viz_dir, save_all=True)
             logger.info(f"[{city_name} / {sequence_id}] Applied weather '{prompt_weather}' to seq frame '{img_name}'")
-            weather_applied_list.append({"image_name": img_name, "weather_prompt": prompt_weather})
+            weather_applied_list.append({"image_name": img_name.replace('.jpg', '.png'), "weather_prompt": prompt_weather})
         
         processed_images.append(img)
         
@@ -117,7 +117,7 @@ def process_and_save_synthetic_change_at_center(
         
         # Only process and save Mask & BBox if the object actually appears
         if frame_masks:
-            valid_frames.append(img_name)
+            valid_frames.append(img_name.replace('.jpg', '.png'))
             
             # --- Save Mask ---
             merged_frame_mask = np.any(frame_masks, axis=0)
@@ -168,7 +168,7 @@ def process_and_save_synthetic_change_at_center(
         "rank_score": [inst.get("rank", 0) for inst in selected_instances],
         "track_confidences": track_confidences,
         "verification_status": verification_status,
-        "center_image_name": img_name_center,
+        "center_image_name": img_name_center.replace('.jpg', '.png'),
         "weather_applied": weather_applied_list,
         "frames_with_object": valid_frames,         # Added this so you know exactly where objects are
         "image_paths": saved_image_paths,
