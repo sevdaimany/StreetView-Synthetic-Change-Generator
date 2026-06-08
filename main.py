@@ -12,7 +12,8 @@ import json
 from PIL import Image
 from tqdm import tqdm
 import traceback
-from utils import *
+# from utils import *
+import utils
 import torch.multiprocessing as mp
 import fcntl
 import torch
@@ -33,7 +34,7 @@ def process_and_save_synthetic_change_at_center(
     """
     
     img_name_center = image_names[center_idx]
-    viz_dir, base_data_dir = create_folders(cfg, city_name, sequence_id)
+    viz_dir, base_data_dir = utils.create_folders(cfg, city_name, sequence_id)
     prompts_weather = cfg.input.get("prompts_weather")
 
     # Change season style 
@@ -141,7 +142,7 @@ def process_and_save_synthetic_change_at_center(
                     frame_instances.append(inst_copy)
                     
             viz_bbox_path = os.path.join(viz_dir, "bbox", f"{safe_class}_{img_base_name}.jpg")
-            save_voc_bboxes_and_overlay(
+            utils.save_voc_bboxes_and_overlay(
                 image_pil=img, 
                 instances=frame_instances, 
                 mask_key="current_frame_mask",
@@ -196,7 +197,7 @@ def process_and_save_synthetic_change(
     """
 
     current_pair = (img_name1, img_name2)
-    viz_dir, data_dir = create_folders(cfg, city_name, sequence_id)
+    viz_dir, data_dir = utils.create_folders(cfg, city_name, sequence_id)
 
     # EXTRACT AND MERGE BOTH 'BEFORE' AND 'AFTER' MASKS FOR ALL SELECTED INSTANCES
     after_masks = [np.array(inst["after_mask"]) > 0 for inst in selected_instances]
@@ -289,14 +290,14 @@ def process_and_save_synthetic_change(
     # SAVE VISUALIZATION ASSETS
     viz_bbox_before = os.path.join(viz_dir, f"{pair_id}_bbox_before.jpg")
     viz_bbox_after = os.path.join(viz_dir, f"{pair_id}_bbox_after.jpg")
-    save_voc_bboxes_and_overlay(image_pil=img1, instances=selected_instances, mask_key="before_mask", 
+    utils.save_voc_bboxes_and_overlay(image_pil=img1, instances=selected_instances, mask_key="before_mask", 
         class_name=prompt_seg, txt_path=paths["txt_before"], overlay_path=viz_bbox_before)
-    save_voc_bboxes_and_overlay(image_pil=img2, instances=selected_instances, mask_key="after_mask", 
+    utils.save_voc_bboxes_and_overlay(image_pil=img2, instances=selected_instances, mask_key="after_mask", 
         class_name=prompt_seg, txt_path=paths["txt_after"], overlay_path=viz_bbox_after)
     
     overlay_img1 = generator.overlay_mask(img1, mask_before_np)
     overlay_img2 = generator.overlay_mask(img2, mask_after_np)
-    grid = create_qc_grid([overlay_img1, overlay_img2, inpainted_image], 
+    grid = utils.create_qc_grid([overlay_img1, overlay_img2, inpainted_image], 
                           labels=["Before overlay", "After overlay", "Inpainted"], font_path=cfg.input.font_path)
     grid.save(os.path.join(viz_dir, f"{pair_id}_QC.jpg"), quality=85) # JPG saves space for viz
 
@@ -430,7 +431,7 @@ def process_sequence_at_center(sequence_id, base_path, classes, class_to_prompt,
 
     try:
         # Load all images in the sequence
-        images = [load_image(os.path.join(sequence_path, f), cfg) for f in image_files]
+        images = [utils.load_image(os.path.join(sequence_path, f), cfg) for f in image_files]
         sam_pipeline.load_image_sequence(images)
         
         for class_name in classes:
@@ -440,7 +441,7 @@ def process_sequence_at_center(sequence_id, base_path, classes, class_to_prompt,
                 img_name_center = image_files[center_idx]
                 
                 # Check redundancy based on center image
-                if check_redundancy_run_on_center(city_name, sequence_id, class_name, cfg):
+                if utils.check_redundancy_run_on_center(city_name, sequence_id, class_name, cfg):
                     logger.info(f"[{city_name} / {sequence_id}] Skipping {class_name} (already processed)")
                     continue
 
@@ -501,8 +502,8 @@ def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipel
     for img_name1, img_name2 in adjacent_pairs:
         current_pair = (img_name1, img_name2)
         try:
-            img1 = load_image(os.path.join(sequence_path, img_name1), cfg)
-            img2 = load_image(os.path.join(sequence_path, img_name2), cfg)
+            img1 = utils.load_image(os.path.join(sequence_path, img_name1), cfg)
+            img2 = utils.load_image(os.path.join(sequence_path, img_name2), cfg)
             sam_pipeline.load_image_pair(img1, img2)
             
             for class_name in classes:
@@ -515,7 +516,7 @@ def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipel
                     prompt_inpaint = class_to_prompt[class_name]
                     
                     # # RESTART LOGIC: Check if work is already done
-                    if check_redundancy(city_name, sequence_id, class_name, img_name1, img_name2, cfg):
+                    if utils.check_redundancy(city_name, sequence_id, class_name, img_name1, img_name2, cfg):
                         logger.info(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}] Skipping {class_name} for {img_name1} -> {img_name2} (already processed)")
                         continue
 
@@ -583,7 +584,7 @@ def process_city_worker(args):
 
     # Initialize logger for the city
     log_dir_root = os.path.join(os.path.dirname(__file__), "logs_pipeline")
-    logger = setup_logger(log_dir_root, city_name)
+    logger = utils.setup_logger(log_dir_root, city_name)
     logger.info(f"Configuration:\n{OmegaConf.to_yaml(cfg)}")
 
     logger.info(f"[{city_name}] Started processing city. Claimed GPU: {device}")
@@ -624,6 +625,12 @@ def process_city_worker(args):
         logger.error(traceback.format_exc())
         
     finally:
+        if os.path.exists(lock_file):
+            try:
+                os.remove(lock_file)
+            except OSError:
+                pass
+                
         # Clean up and release the GPU for the next city
         try: del generator, sam_pipeline
         except: pass
