@@ -30,20 +30,28 @@ def colorize_depth_fixed(depth_u8: np.ndarray, cmap: str = "Spectral") -> np.nda
 def ensure_dir_for_file(path: str):
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
-def load_model(config):
+def load_model(config, device):
     model_path = os.path.join(config["load_weights_dir"], "model.pth")
     print(f"🔹 Loading model weights from: {model_path}")
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # device = "cuda" if torch.cuda.is_available() else "cpu"
     state = torch.load(model_path, map_location=device)
 
     m = make(config["model"])
-    if any(k.startswith("module") for k in state.keys()):
-        m = nn.DataParallel(m)
+
+    # if any(k.startswith("module") for k in state.keys()):
+    #     m = nn.DataParallel(m)
+    # Create a new dictionary without the 'module.' prefix
+    clean_state = {}
+    for k, v in state.items():
+        if k.startswith("module."):
+            clean_state[k[7:]] = v  # [7:] slices off the 7 characters of 'module.'
+        else:
+            clean_state[k] = v
 
     m = m.to(device)
     m_state = m.state_dict()
-    m.load_state_dict({k: v for k, v in state.items() if k in m_state}, strict=False)
+    m.load_state_dict({k: v for k, v in clean_state.items() if k in m_state}, strict=False)
     m.eval()
 
     print("✅ Model loaded successfully.\n")
