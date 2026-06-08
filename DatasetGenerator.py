@@ -21,7 +21,7 @@ class DatasetGenerator:
         Initializes the dataset generator by loading the necessary models and setting up the environment.
         '''
         self.device  = device
-        self.segmodel = Sam3Model.from_pretrained(cfg.model.segmentation)
+        self.segmodel = Sam3Model.from_pretrained(cfg.model.segmentation).to(self.device)
         self.segprocessor = Sam3Processor.from_pretrained(cfg.model.segmentation)
         self.cfg = cfg
         self.num_controlnets = int(cfg.input.depth) + int(cfg.input.canny) + int(cfg.input.inpaint)
@@ -33,7 +33,8 @@ class DatasetGenerator:
             vae=vae,
             torch_dtype=torch.float16,
             variant="fp16")
-        self.inpaint_pipeline_xl.enable_model_cpu_offload(device=self.device) 
+        # self.inpaint_pipeline_xl.enable_model_cpu_offload(device=self.device) 
+        self.inpaint_pipeline_xl.to(self.device)
 
         # SD 1.5
         controllers = self.controlnet_models()
@@ -43,7 +44,8 @@ class DatasetGenerator:
                 torch_dtype=torch.float16,
                 use_safetensors=True,
                 variant="fp16")
-        self.inpaint_pipeline.enable_model_cpu_offload(device=self.device)
+        # self.inpaint_pipeline.enable_model_cpu_offload(device=self.device)
+        self.inpaint_pipeline.to(self.device)
 
         self.depth_predictor = self.DAP_depth_estimation() 
 
@@ -68,7 +70,7 @@ class DatasetGenerator:
                 controlnet_conditioning_scale = [0.85, 0.65]  # [depth, canny] tune
                 control_guidance_start = [0.0, 0.0]
                 control_guidance_end   = [1.0, 1.0]
-        if num_controlnets == 3:
+        elif num_controlnets == 3:
                 controlnet_conditioning_scale = [0.55, 0.55, 0.85]  # [depth, canny, inpaint_mask] tune
                 control_guidance_start = [0.0, 0.0, 0.0]
                 control_guidance_end   = [1.0, 1.0, 1.0]
@@ -111,7 +113,7 @@ class DatasetGenerator:
                 generator=torch.Generator(self.device).manual_seed(0),
             ).images[0]
 
-        self.flush()
+        # self.flush()
         return image
 
     def generate_control_images(self, img, mask, image_name, save_path, save=False):
@@ -128,6 +130,7 @@ class DatasetGenerator:
                 plt.title('Depth Map')
                 plt.axis('off')
                 plt.savefig(os.path.join(save_path, "depth", f"{image_name.split('.')[0]}.png"))
+                plt.close()
             control_images.append(control_image)
 
         if self.cfg.input.canny:
@@ -184,7 +187,7 @@ class DatasetGenerator:
             print("DAP Config loaded.")
 
         config["load_weights_dir"] = self.cfg.model.dap_load_weights_dir
-        model, _ = DAP_load_model(config)
+        model, _ = DAP_load_model(config, self.device)
 
         return model
         
@@ -257,6 +260,7 @@ class DatasetGenerator:
         plt.tight_layout()
         plt.savefig(save_path)
         plt.show()
+        plt.close(fig)
 
 
     def _to_numpy(self, tensor_or_array):
@@ -276,7 +280,7 @@ class DatasetGenerator:
                 80  = subtle change (buildings)
                 0   = preserve (vehicles, people, signs)
         """
-        self.segmodel.to(self.device)
+        # self.segmodel.to(self.device)
 
         img_size = img.size  # (W, H)
         mask_array = np.full((img_size[1], img_size[0]), -1, dtype=np.float32)
@@ -318,7 +322,7 @@ class DatasetGenerator:
             )
             mask_array[update_region] = mask_value
 
-        self.segmodel.to("cpu")
+        # self.segmodel.to("cpu")
 
         mask_array[mask_array == -1] = 255
 
@@ -364,7 +368,7 @@ class DatasetGenerator:
     def segment(self, img, prompt):
         """Generates a segmentation mask for the given image and prompt using the SAM model."""
 
-        self.segmodel.to(self.device)
+        # self.segmodel.to(self.device)
 
         inputs = self.segprocessor(images=img, text=prompt, return_tensors="pt").to(self.device)
 
@@ -378,8 +382,8 @@ class DatasetGenerator:
                     target_sizes=inputs.get("original_sizes").tolist()
                 )[0]
 
-        self.segmodel.to("cpu")
-        self.flush()
+        # self.segmodel.to("cpu")
+        # self.flush()
 
         return results["masks"]
     
@@ -441,6 +445,7 @@ class DatasetGenerator:
             plt.tight_layout()
             plt.savefig(save_path)
             plt.show()
+            plt.close(fig)
         return inpainted_image
 
 
