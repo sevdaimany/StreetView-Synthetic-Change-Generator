@@ -320,6 +320,7 @@ class SAM3CorrespondencePipeline:
         
         plt.tight_layout()
         plt.savefig(save_path, bbox_inches='tight')
+        plt.close(fig)
         print(f"Saved correspondence visualization to {save_path}")
     
     def visualize_sequence_correspondence(self, images, matched_instances, save_path, alpha=0.5):
