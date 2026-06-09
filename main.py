@@ -21,7 +21,18 @@ import gc
 import time
 
 load_dotenv()
-login(os.getenv("HF_TOKEN"))
+
+def maybe_login_huggingface() -> None:
+    """Login to Hugging Face only when online mode is enabled."""
+    token = os.getenv("HF_TOKEN")
+    offline = os.getenv("HF_HUB_OFFLINE", "0") == "1"
+
+    if token and not offline:
+        login(token=token)
+
+
+maybe_login_huggingface()
+
 
 def process_and_save_synthetic_change_at_center(
     generator, cfg, sequence_id, city_name,
@@ -48,9 +59,9 @@ def process_and_save_synthetic_change_at_center(
             img = generator.inference_change_style(img, img_name, prompt_weather, save_path=viz_dir, save_all=True)
             logger.info(f"[{city_name} / {sequence_id}] Applied weather '{prompt_weather}' to seq frame '{img_name}'")
             weather_applied_list.append({"image_name": img_name.replace('.jpg', '.png'), "weather_prompt": prompt_weather})
-        
+
         processed_images.append(img)
-        
+
     img_center = processed_images[center_idx]
 
     # EXTRACT CENTER MASK FOR INPAINTING
@@ -66,7 +77,7 @@ def process_and_save_synthetic_change_at_center(
         prompt_inpaint=prompt_inpaint,
         seg_mask=mask_center_pil, 
     )
-    
+
     # Standardize sizes if generator altered them
     target_size = img_center.size
     if inpainted_image.size != target_size or mask_center_pil.size != target_size:
@@ -328,9 +339,6 @@ def process_and_save_synthetic_change(
         json.dump(metadata, f, indent=4)
 
 
-
-
-
 def select_mask(matches, selection_mode, logger, city_name, sequence_id, current_pair, prompt_seg):
     if len(matches) == 0:
         return None
@@ -565,7 +573,7 @@ def load_models(cfg, device, logger):
 def process_city_worker(args):
     city_name, cfg, gpu_queue, completed_file = args
 
-    # Atomic File Locking
+    # # Atomic File Locking
     city_output_path = os.path.join(cfg.output.dir_root, 'pipeline_data', city_name)
     os.makedirs(city_output_path, exist_ok=True)
     lock_file = os.path.join(city_output_path, '.processing_lock')
@@ -583,7 +591,7 @@ def process_city_worker(args):
     device = torch.device(f"cuda:{gpu_id}")
 
     # Initialize logger for the city
-    log_dir_root = os.path.join(os.path.dirname(__file__), "logs_pipeline")
+    log_dir_root = cfg.logging.dir
     logger = utils.setup_logger(log_dir_root, city_name)
     logger.info(f"Configuration:\n{OmegaConf.to_yaml(cfg)}")
 
@@ -593,6 +601,18 @@ def process_city_worker(args):
     try:
         city_path = os.path.join(cfg.input.dir_root, city_name)
         sequence_folders = sorted([ d for d in os.listdir(city_path) if os.path.isdir(os.path.join(city_path, d))])
+
+        # Sample a percentage of sequences if configured
+        state_cfg = cfg.get("state", {})
+        if state_cfg.get("use_random_sample", False):
+            sample_percent = state_cfg.get("random_sample_percent", 100)
+            seed = state_cfg.get("random_seed", 42)
+            all_count = len(sequence_folders)
+            num_to_keep = max(1, int(all_count * sample_percent / 100))
+            rng = random.Random(seed)
+            sequence_folders = sorted(rng.sample(sequence_folders, num_to_keep))
+            logger.info(f"[{city_name}] Sampled {num_to_keep}/{all_count} sequences ({sample_percent}%)")
+
         total_sequences = len(sequence_folders)
         if not sequence_folders:
             logger.warning(f"No sequence folders found in {city_path}. Skipping city.")
@@ -644,14 +664,16 @@ def process_city_worker(args):
         logger.info(f"[{city_name}] VRAM cleared. Released GPU {device} back to queue.")
 
 
-@hydra.main(config_path=".", config_name="config_pipeline")
+@hydra.main(config_path=".", config_name="config_pipeline_2")
 def run(cfg: DictConfig):
-
+    print(cfg.input.dir_root)
+    print(cfg.output.dir_root)
+    # exit(0)
     mp.set_start_method('spawn', force=True)  # For safe multiprocessing with PyTorch and CUDA
     num_gpus = torch.cuda.device_count()
     if num_gpus == 0:
         raise RuntimeError("No GPUs found. This pipeline requires at least one GPU.")
-    
+
     print(f"\n Detected {num_gpus} GPUs. Initializing city-level multiprocessing pool...\n")
 
     # create a queue and populate it with available GPU IDs
@@ -668,12 +690,26 @@ def run(cfg: DictConfig):
             fcntl.flock(f, fcntl.LOCK_EX)  # Lock the file for reading
             completed = {line.strip() for line in f if line.strip()}
             fcntl.flock(f, fcntl.LOCK_UN)  # Unlock after reading
-    
+
     # Gather all tasks(cities), skipping already completed ones
     city_folders = sorted([
         d for d in os.listdir(cfg.input.dir_root)
         if os.path.isdir(os.path.join(cfg.input.dir_root, d)) and d not in completed
     ])
+
+    # Apply city whitelist if configured
+    state_cfg = cfg.get("state", {})
+    city_whitelist = state_cfg.get("city_whitelist", None)
+    if city_whitelist:
+        city_whitelist = list(city_whitelist)
+        for city in city_whitelist:
+            if city in completed:
+                raise RuntimeError(
+                    f"City '{city}' is in the whitelist but already marked as finished. "
+                    f"Remove it from completed_cities.txt if you want to reprocess it."
+                )
+        city_folders = [c for c in city_folders if c in city_whitelist]
+        print(f" City whitelist active: {city_whitelist}")
 
     if completed:
         print(f" Skipping {len(completed)} already completed cities.")
