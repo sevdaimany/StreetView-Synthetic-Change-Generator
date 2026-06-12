@@ -1,4 +1,5 @@
 import os
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 import hydra
 import logging
 import random
@@ -477,7 +478,19 @@ def process_sequence_at_center(sequence_id, base_path, classes, class_to_prompt,
             except Exception as e:
                 logger.error(f"[{city_name} / {sequence_id}] Error processing class '{class_name}': {e}")
                 logger.error(traceback.format_exc())
-        
+                gc.collect()
+                torch.cuda.empty_cache()
+                # After OOM the SAM session may hold partial propagation tensors;
+                # close and reopen it so the next class starts with a clean state.
+                if "out of memory" in str(e).lower():
+                    try:
+                        sam_pipeline.clear_current_pair()
+                        sam_pipeline.load_image_sequence(images)
+                        logger.info(f"[{city_name} / {sequence_id}] SAM session reloaded after OOM.")
+                    except Exception as reload_err:
+                        logger.error(f"[{city_name} / {sequence_id}] Could not reload SAM session: {reload_err}")
+                        break
+
         logger.info(f"[{city_name} / {sequence_id}] Completed processing sequence in {time.time() - start_time:.2f} seconds.")
 
     except Exception as e:
@@ -555,6 +568,8 @@ def process_sequence(sequence_id, base_path, classes, class_to_prompt, sam_pipel
                 except Exception as e:
                     logger.error(f"[{city_name} / {sequence_id} / {current_pair} / {prompt_seg}] Error processing class '{class_name}' for pair {img_name1}-{img_name2}: {e}")
                     logger.error(traceback.format_exc())
+                    gc.collect()
+                    torch.cuda.empty_cache()
 
         except Exception as e:
             logger.error(f"[{city_name} / {sequence_id} / {current_pair}] Error processing pair {img_name1}-{img_name2}: {e}")
@@ -624,6 +639,9 @@ def process_city_worker(args):
         classes = list(class_to_prompt.keys())
         for seq_idx, sequence_id in enumerate(tqdm(sequence_folders, desc=f"{city_name} Sequences"), start=1):
             try:
+                # if check_redundancy_sequence_level(city_name, sequence_id, cfg):
+                #     logger.info(f"[{city_name} / {sequence_id}] Skipping entire sequence (already processed for all classes)")
+                #     continue
                 process_sequence_at_center(sequence_id, city_path, classes, class_to_prompt, sam_pipeline, generator, cfg, logger, seq_idx, total_sequences)
                 gc.collect()
                 torch.cuda.empty_cache()
@@ -645,20 +663,20 @@ def process_city_worker(args):
         logger.error(traceback.format_exc())
         
     finally:
-        if os.path.exists(lock_file):
-            try:
-                os.remove(lock_file)
-            except OSError:
-                pass
                 
         # Clean up and release the GPU for the next city
-        try: del generator, sam_pipeline
-        except: pass
-        
+        try:
+            sam_pipeline.shutdown()
+        except Exception:
+            pass
+        try:
+            del generator, sam_pipeline
+        except Exception:
+            pass
+
         gc.collect()
         torch.cuda.empty_cache()
-        sam_pipeline.shutdown()
-        
+
         # Return the GPU ID to the queue so another city can use it
         gpu_queue.put(gpu_id)
         logger.info(f"[{city_name}] VRAM cleared. Released GPU {device} back to queue.")

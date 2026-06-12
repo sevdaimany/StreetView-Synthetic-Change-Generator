@@ -152,7 +152,9 @@ def check_redundancy_run_on_center(city_name, sequence_id, class_name, cfg):
     check_path = os.path.join(base_dir, f"metadata.json")
     return os.path.exists(check_path)
 
-
+def check_redundancy_sequence_level(city_name, sequence_id, cfg):
+    check_path = os.path.join(cfg.output.dir_root, "pipeline_data", city_name, sequence_id)
+    return os.path.exists(check_path)
 
 def collect_metadata_for_all_pairs(cfg):
 

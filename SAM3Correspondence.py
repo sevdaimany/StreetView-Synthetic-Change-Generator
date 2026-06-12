@@ -11,8 +11,11 @@ import matplotlib.pyplot as plt
 class SAM3CorrespondencePipeline:
     def __init__(self, device="cuda"):
         print("Initializing SAM 3 Predictor (Loading weights to VRAM)...")
-        self.predictor = build_sam3_video_predictor()
-        self.device = device
+        device_obj = torch.device(device) if isinstance(device, str) else device
+        gpu_id = device_obj.index if device_obj.type == "cuda" and device_obj.index is not None else torch.cuda.current_device()
+        print(f"Using device: {device_obj} (GPU ID: {gpu_id})")
+        self.predictor = build_sam3_video_predictor(gpus_to_use=[gpu_id])
+        self.device = device_obj
         self.current_session_id = None
         self.temp_dir = None
         self.num_frames = 0
@@ -115,7 +118,9 @@ class SAM3CorrespondencePipeline:
         ):
             outputs_per_frame[stream_res["frame_index"]] = stream_res["outputs"]
 
-        return self._extract_sequence_matches(outputs_per_frame)
+        result = self._extract_sequence_matches(outputs_per_frame)
+        del outputs_per_frame
+        return result
 
     def clear_current_pair(self):
         """Closes the active session and deletes the temp images."""
