@@ -259,7 +259,6 @@ class DatasetGenerator:
 
         plt.tight_layout()
         plt.savefig(save_path)
-        plt.show()
         plt.close(fig)
 
 
@@ -444,7 +443,6 @@ class DatasetGenerator:
             plt.suptitle(f"Prompt: {prompt_inpaint}", fontsize=16)
             plt.tight_layout()
             plt.savefig(save_path)
-            plt.show()
             plt.close(fig)
         return inpainted_image
 
