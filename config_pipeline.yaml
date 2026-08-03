@@ -25,7 +25,8 @@ input:
   canny: true
   depth: true
   inpaint: false # only for stable diffusion inpainting
-  
+  apply_weather: true # whether to randomly apply weather/season changes
+
 
   prompts_seg:
     buildings: "(sky, trees) matching the surrounding context"

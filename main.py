@@ -53,8 +53,10 @@ def process_and_save_synthetic_change_at_center(
     processed_images = []
     weather_applied_list = [] # Track which images got weather and what prompt was used
 
+    apply_weather_enabled = cfg.input.get("apply_weather", True)
+
     for i, (img, img_name) in enumerate(zip(images, image_names)):
-        apply_weather = random.random() < 0.5
+        apply_weather = apply_weather_enabled and random.random() < 0.5
         if apply_weather:
             prompt_weather = random.choice(prompts_weather) 
             img = generator.inference_change_style(img, img_name, prompt_weather, save_path=viz_dir, save_all=True)
@@ -226,8 +228,7 @@ def process_and_save_synthetic_change(
     mask_before_pil = Image.fromarray(mask_before_np, mode="L")
 
     # 1) change season style
-    apply_weather = random.random() < 0.5
-    # apply_weather = True
+    apply_weather = cfg.input.get("apply_weather", True) and random.random() < 0.5
     prompts_weather = cfg.input.get("prompts_weather", [])
     if apply_weather:
         # randomly choose between image1 and image2 for the weather change
