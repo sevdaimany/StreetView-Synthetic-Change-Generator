@@ -475,6 +475,10 @@ def process_sequence_at_center(sequence_id, base_path, classes, class_to_prompt,
                     logger=logger
                 )
 
+                del matches, selected_instances
+                gc.collect()
+                torch.cuda.empty_cache()
+
             except Exception as e:
                 logger.error(f"[{city_name} / {sequence_id}] Error processing class '{class_name}': {e}")
                 logger.error(traceback.format_exc())
@@ -613,6 +617,7 @@ def process_city_worker(args):
     logger.info(f"[{city_name}] Started processing city. Claimed GPU: {device}")
     print(f"[{city_name}] Started processing city. Claimed GPU: {device}")
 
+    city_success = True
     try:
         city_path = os.path.join(cfg.input.dir_root, city_name)
         sequence_folders = sorted([ d for d in os.listdir(city_path) if os.path.isdir(os.path.join(city_path, d))])
@@ -639,7 +644,7 @@ def process_city_worker(args):
         classes = list(class_to_prompt.keys())
         for seq_idx, sequence_id in enumerate(tqdm(sequence_folders, desc=f"{city_name} Sequences"), start=1):
             try:
-                # if check_redundancy_sequence_level(city_name, sequence_id, cfg):
+                # if utils.check_redundancy_sequence_level(city_name, sequence_id, cfg):
                 #     logger.info(f"[{city_name} / {sequence_id}] Skipping entire sequence (already processed for all classes)")
                 #     continue
                 process_sequence_at_center(sequence_id, city_path, classes, class_to_prompt, sam_pipeline, generator, cfg, logger, seq_idx, total_sequences)
@@ -648,16 +653,19 @@ def process_city_worker(args):
             except Exception as e:
                 logger.error(f"FAILURE in sequence {sequence_id}: {e}")
                 logger.error(traceback.format_exc())
+                city_success = False
                 continue # Continue to next sequence despite failure in current one
-        logger.info(f"[{city_name}] Completed processing city.")
-        print(f"[{city_name}] Completed processing city.")
 
-        with open(completed_file, 'a') as f:
-            # Request exclusive lock. If another script is writing, this will pause and wait.
-            fcntl.flock(f, fcntl.LOCK_EX) 
-            f.write(city_name + '\n')
-            f.flush() # Force OS to write to disk immediately
-            fcntl.flock(f, fcntl.LOCK_UN) # Release the lock
+        if city_success:
+            logger.info(f"[{city_name}] Completed processing city.")
+            print(f"[{city_name}] Completed processing city.")
+
+            with open(completed_file, 'a') as f:
+                # Request exclusive lock. If another script is writing, this will pause and wait.
+                fcntl.flock(f, fcntl.LOCK_EX) 
+                f.write(city_name + '\n')
+                f.flush() # Force OS to write to disk immediately
+                fcntl.flock(f, fcntl.LOCK_UN) # Release the lock
     except Exception as e:
         logger.error(f"[{city_name}] City-level error: {e}")
         logger.error(traceback.format_exc())
@@ -701,7 +709,7 @@ def run(cfg: DictConfig):
         gpu_queue.put(i)
 
     # Load already-completed cities from the tracking file
-    completed_file = os.path.join(os.path.dirname(__file__), "completed_cities.txt")
+    completed_file = os.path.join(os.path.dirname(__file__), "completed_cities_20.txt")
     completed = set()
     if os.path.exists(completed_file):
         with open(completed_file, 'r') as f:
